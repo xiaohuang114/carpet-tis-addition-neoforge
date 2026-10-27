@@ -188,3 +188,48 @@ Modrinth 同理：`tools\save-token.ps1 -Service modrinth` → `tools\publish-mo
 ### 如果 token 已经生成过
 
 关掉页面就看不到原值了 —— 直接按上面第 1~6 步重新生成一个（旧的可以在同一页面 Revoke 掉）。
+
+---
+
+## 10. 排错：`error: No such remote 'origin'`（第二次运行时遇到的）
+
+```
+[publish] authenticated as xiaohuang114
+[publish] created repo xiaohuang114/carpet-tis-addition-neoforge
+git.exe : error: No such remote 'origin'
++ $current = (& git remote get-url origin 2>$null)
+```
+
+原因：脚本顶部有 `$ErrorActionPreference = 'Stop'`。PowerShell 把**原生命令写到 stderr 的任何输出都当成致命错误**，
+而仓库刚建好时还没有 `origin`，`git remote get-url origin` 就会往 stderr 写这行 —— 于是 `try` 都没机会执行就直接终止（`NativeCommandError`）。
+
+修法（已提交）：
+
+1. 探测改成 `git config --get remote.origin.url`（不存在时**静默返回空 + exit 1**，不写 stderr）。
+2. git 段临时 `$ErrorActionPreference = 'Continue'`，`push` 的输出全部捕获后逐行回显，按 `$LASTEXITCODE` 判断成败。
+3. **token 不再写进 `.git/config`**：remote 用干净 URL，认证走一次性头
+   `git -c credential.helper= -c "http.https://github.com/.extraheader=AUTHORIZATION: basic <base64>" push -u origin main`。
+4. push 失败时给出明确原因（缺 Contents:write / 缺 repo scope / 需要先 pull），并 `exit 4`。
+
+本地裸库模拟验证（不打 network，也不碰你的仓库）：
+
+```
+config probe -> '' (empty means not present, no exception thrown)
+   git: To ...\_tmp\sim-remote.git
+   git:  * [new branch]      main -> main
+push exit code = 0
+```
+
+### 现在只需要重跑一次
+
+你的 `tools\.secrets\github.token`（40 字符）和 `github.owner = xiaohuang114` 已经写好了，仓库也已经建好，脚本是幂等的：
+
+```powershell
+cd "D:\Minecraft-mod-development\carpet-tis-neoforge移植（已收工）\TIS-NeoForge"
+tools\publish-github.ps1
+```
+
+预期输出：`already exists` → `pushing main` → `pushed main` → `release created` → 3 个 `uploaded asset` → 打印仓库与 release 链接。
+
+> 安全提醒：你第一次是把 token 直接写在命令行里的（`tools\save-token.ps1 -Service github ghp_...`），它还出现在截图里。
+> 发布成功后建议立刻到 <https://github.com/settings/tokens> 把这条 **Revoke** 掉，再用 `tools\save-token.ps1 -Service github`（隐藏输入）存一条新的。

@@ -122,17 +122,35 @@ if (-not $repoExists) {
     Write-Host "[publish] repo $Owner/$Repo already exists" -ForegroundColor Cyan
 }
 
-# --- 2. push
-$remoteUrl = "https://x-access-token:$Token@github.com/$Owner/$Repo.git"
-$current = (& git remote get-url origin 2>$null)
-if ($LASTEXITCODE -ne 0 -or -not $current) {
-    & git remote add origin $remoteUrl
+# --- 2. push (token never lands in .git/config: passed as a one-shot auth header)
+$cleanUrl = "https://github.com/$Owner/$Repo.git"
+$pair = "x-access-token:$Token"
+$b64 = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes($pair))
+
+$eap = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+$current = (& git config --get remote.origin.url 2>$null)
+if ([string]::IsNullOrWhiteSpace($current)) {
+    & git remote add origin $cleanUrl 2>&1 | Out-Null
+    Write-Host "[publish] remote origin -> $cleanUrl" -ForegroundColor Cyan
 } else {
-    & git remote set-url origin $remoteUrl
+    $current = "$current".Trim()
+    & git remote set-url origin $cleanUrl 2>&1 | Out-Null
+    if ($current -ne $cleanUrl) { Write-Host "[publish] remote origin reset to clean url (no token in .git/config)" -ForegroundColor Cyan }
 }
-& git branch -M main
-& git push -u origin main
-if ($LASTEXITCODE -ne 0) { throw 'git push failed' }
+& git branch -M main 2>&1 | Out-Null
+
+Write-Host '[publish] pushing main ...' -ForegroundColor Cyan
+$pushOut = & git -c credential.helper= -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $b64" push -u origin main 2>&1
+$pushCode = $LASTEXITCODE
+$ErrorActionPreference = $eap
+$pushOut | ForEach-Object { Write-Host "   git: $_" -ForegroundColor DarkGray }
+if ($pushCode -ne 0) {
+    Write-Host "[publish] git push failed (exit $pushCode)." -ForegroundColor Red
+    Write-Host '  common causes: token lacks Contents:write (fine-grained) or repo scope (classic);' -ForegroundColor Yellow
+    Write-Host '  or the repo already has commits and needs a pull/rebase first.' -ForegroundColor Yellow
+    exit 4
+}
 Write-Host '[publish] pushed main' -ForegroundColor Green
 
 if ($SkipRelease) { exit 0 }
