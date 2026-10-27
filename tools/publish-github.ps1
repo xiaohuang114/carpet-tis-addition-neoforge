@@ -57,6 +57,42 @@ if ([string]::IsNullOrWhiteSpace($Token)) {
     Write-Host '   or: put the token in tools\.secrets\github.token (+ github.owner), then just run tools\publish-github.ps1' -ForegroundColor Yellow
     exit 2
 }
+# --- 0. token preflight: fail fast with a readable message instead of a raw 401
+$len = $Token.Length
+$masked = $Token
+if ($len -gt 8) { $masked = $Token.Substring(0, 4) + '...' + $Token.Substring($len - 4) }
+Write-Host ("[publish] token: {0} ({1} chars)" -f $masked, $len) -ForegroundColor Cyan
+
+$probeHeaders = @{ Authorization = "token $Token"; 'User-Agent' = 'tis-neoforge-publisher'; Accept = 'application/vnd.github+json' }
+$me = $null
+try {
+    $me = Invoke-RestMethod -Uri 'https://api.github.com/user' -Headers $probeHeaders
+} catch {
+    $status = 0
+    if ($_.Exception.Response) { $status = [int]$_.Exception.Response.StatusCode }
+    Write-Host ''
+    Write-Host ("[publish] GitHub rejected the token: HTTP {0} {1}" -f $status, $_.Exception.Message) -ForegroundColor Red
+    if ($len -lt 20) {
+        Write-Host ("[publish] your token is only {0} chars - that looks like the placeholder from the docs, not a real one." -f $len) -ForegroundColor Yellow
+    }
+    Write-Host ''
+    Write-Host '  Classic PAT (40 chars, starts with ghp_):' -ForegroundColor Yellow
+    Write-Host '    https://github.com/settings/tokens  ->  Generate new token (classic)  ->  scope: repo' -ForegroundColor Yellow
+    Write-Host '  Fine-grained PAT (starts with github_pat_):' -ForegroundColor Yellow
+    Write-Host '    https://github.com/settings/personal-access-tokens/new' -ForegroundColor Yellow
+    Write-Host '    -> Repository access: All repositories (or pick one)' -ForegroundColor Yellow
+    Write-Host '    -> Permissions: Contents = Read and write, Administration = Read and write, Metadata = Read' -ForegroundColor Yellow
+    Write-Host ''
+    Write-Host '  then either:' -ForegroundColor Yellow
+    Write-Host '    $env:GITHUB_TOKEN = "<paste real token>"; $env:GITHUB_OWNER = "<your login>"; tools\publish-github.ps1' -ForegroundColor Yellow
+    Write-Host '    or write the token to tools\.secrets\github.token and the login to tools\.secrets\github.owner' -ForegroundColor Yellow
+    if ($status -eq 403) {
+        Write-Host ''
+        Write-Host '  HTTP 403 = the token is valid but missing a scope/permission (needs repo / Contents write).' -ForegroundColor Yellow
+    }
+    exit 3
+}
+Write-Host ("[publish] authenticated as {0}" -f $me.login) -ForegroundColor Green
 if ([string]::IsNullOrWhiteSpace($Owner)) {
     $me = Invoke-RestMethod -Uri 'https://api.github.com/user' -Headers @{ Authorization = "token $Token"; 'User-Agent' = 'tis-neoforge-publisher' }
     $Owner = $me.login

@@ -128,3 +128,35 @@ PS> tools\publish-github.ps1 -DryRun
 1. **PS 5.1 读 .ps1 的编码**：无 BOM 的 UTF-8 脚本会被当 ANSI，中文字符串把引号吃掉，报 `Unexpected token 'utility'` / `The string is missing the terminator: '`。→ 两个脚本都存成 **UTF-8 with BOM**。
 2. **PS 5.1 没有 `if` 表达式**：`-f (if (Test-Path x) {1} else {2})` 会报 `无法将"if"项识别为 cmdlet`。→ 先算变量再格式化。
 3. **`Get-Content -Raw` 默认按 ANSI 读**：`version.json` 里的中文被读坏后 `ConvertFrom-Json` 报 `Invalid object passed in, ':' or '}' expected`。→ 全部改成 `-Encoding UTF8`。
+
+---
+
+## 8. 排错：401 未经授权（截图里遇到的那次）
+
+你运行时贴的是占位符，不是真 token：
+
+```
+PS> $env:GITHUB_TOKEN = "ghp_xxx"
+PS> tools\publish-github.ps1
+Invoke-RestMethod : 远程服务器返回错误: (401) 未经授权。
+```
+
+`ghp_xxx` 只有 7 个字符，真正 classic PAT 是 **40 字符**、`github_pat_` 开头的 fine-grained 是 **93 字符**。脚本现在会在开工前先做一次 `GET /user` 预检，并直接告诉你这件事：
+
+```
+[publish] token: ghp_xxx (7 chars)
+[publish] GitHub rejected the token: HTTP 401 未经授权。
+[publish] your token is only 7 chars - that looks like the placeholder from the docs, not a real one.
+  Classic PAT (40 chars, starts with ghp_):  https://github.com/settings/tokens  -> scope: repo
+  Fine-grained PAT: https://github.com/settings/personal-access-tokens/new
+     Repository access: All repositories
+     Permissions: Contents = Read and write, Administration = Read and write, Metadata = Read
+exit=3
+```
+
+Modrinth 侧同样预检（`GET /v2/user`），占位符 `mrp_xxx` 会提示「only 7 chars - looks like the placeholder」。
+
+### 还要注意两点
+
+1. **`GITHUB_OWNER` 不能有空格**：你的截图里是 `"xiao huan 114"`。GitHub 用户名不允许空格，实际应该是 `xiaohuang114` 这样的连续串。填错会在 `POST /user/repos` 阶段变成 404/403。
+2. **token 别贴进聊天**：写进 `tools\.secrets\github.token`（已 gitignore）最稳妥，脚本会自动读。

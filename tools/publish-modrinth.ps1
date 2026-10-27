@@ -58,6 +58,30 @@ if ([string]::IsNullOrWhiteSpace($Token)) {
     exit 2
 }
 
+# --- 0. token preflight: readable message instead of a raw 401
+$len = $Token.Length
+$masked = $Token
+if ($len -gt 8) { $masked = $Token.Substring(0, 4) + '...' + $Token.Substring($len - 4) }
+Write-Host ("[publish] token: {0} ({1} chars)" -f $masked, $len) -ForegroundColor Cyan
+try {
+    $who = Invoke-RestMethod -Uri 'https://api.modrinth.com/v2/user' -Headers @{ Authorization = $Token; 'User-Agent' = 'tis-neoforge-publisher/1.0' }
+    Write-Host ("[publish] authenticated as {0}" -f $who.username) -ForegroundColor Green
+} catch {
+    $status = 0
+    if ($_.Exception.Response) { $status = [int]$_.Exception.Response.StatusCode }
+    Write-Host ''
+    Write-Host ("[publish] Modrinth rejected the token: HTTP {0} {1}" -f $status, $_.Exception.Message) -ForegroundColor Red
+    if ($len -lt 20) { Write-Host ("[publish] your token is only {0} chars - that looks like the placeholder, not a real PAT." -f $len) -ForegroundColor Yellow }
+    Write-Host ''
+    Write-Host '  Create a PAT: https://modrinth.com/settings/pats  -> Create PAT' -ForegroundColor Yellow
+    Write-Host '  Required scopes: Project create, Version create (add Project write if you want to edit later)' -ForegroundColor Yellow
+    Write-Host '  The PAT starts with mrp_ . A session token from the website will not work.' -ForegroundColor Yellow
+    Write-Host ''
+    Write-Host '  then either:' -ForegroundColor Yellow
+    Write-Host '    $env:MODRINTH_TOKEN = "<paste mrp_...>"; tools\publish-modrinth.ps1' -ForegroundColor Yellow
+    Write-Host '    or write it to tools\.secrets\modrinth.token' -ForegroundColor Yellow
+    exit 3
+}
 $headers = @{ Authorization = $Token; 'User-Agent' = 'carpet-tis-addition-neoforge-publisher/1.0' }
 
 # --- icon (Modrinth wants a square PNG, 512 or 1024)
