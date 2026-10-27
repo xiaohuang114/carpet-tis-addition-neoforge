@@ -88,3 +88,43 @@ curl.exe -s -H "User-Agent: dsh-agent" https://api.github.com/repos/OWNER/carpet
 * `dist\publish\modrinth-body.md`（3 306 B）/ `version.json`（762 B）/ `github-release.md`（1 791 B）
 * 仓库根 `README.md`（1 521 B）、`.gitignore`（构建产物与验证台全部排除）
 * git 初始提交 `a8f24c9`（1082 文件 / 5.5 MB）
+
+---
+
+## 6. 上传前的离线自检（本轮实测，不需要 token）
+
+```
+PS> tools\publish-modrinth.ps1 -DryRun
+[dry-run] project payload fields : slug/title/description/body/categories/client_side/server_side/project_type/license_id
+[dry-run] body markdown chars   : 2212
+[dry-run] version data JSON     : 718 chars
+[dry-run] version json valid    : 1.82.0+neoforge.1.21.1
+[dry-run] game_versions/loaders : 1.21.1 / neoforge
+[dry-run] upload file           : TIS-single-jarjar.jar (1767785 bytes)
+[dry-run] icon                  : icon-D.png (1885 bytes)
+[dry-run] no request sent; set MODRINTH_TOKEN and drop -DryRun to publish.
+
+PS> tools\publish-github.ps1 -DryRun
+[dry-run] planned API calls:
+  GET    https://api.github.com/repos/$Owner/$Repo            (existence check)
+  POST   https://api.github.com/user/repos                    (create when absent)
+  POST   https://api.github.com/repos/$Owner/$Repo/releases   (tag v1.82.0+neoforge.1.21.1)
+  POST   .../releases/{id}/assets?name=...                    (3 assets)
+[dry-run] local git state:
+  branch        : master
+  head          : 8c54c3d Add publishing pipeline: GitHub/Modrinth scripts, release metadata, publish checklist
+  origin        : (none yet)
+  dirty files   : 2
+[dry-run] assets that would be uploaded:
+  TIS-Addition-NeoForge-1.21.1-single-jar.zip          2,913,744 bytes
+  TIS-Addition-NeoForge-1.21.1.zip                     2,918,691 bytes
+  TIS-single-jarjar.jar                                1,767,785 bytes
+```
+
+（`dirty files: 2` 是本次 DryRun 补丁自身，提交后为 0。）
+
+## 7. 三个已知坑（都已在本轮脚本里规避）
+
+1. **PS 5.1 读 .ps1 的编码**：无 BOM 的 UTF-8 脚本会被当 ANSI，中文字符串把引号吃掉，报 `Unexpected token 'utility'` / `The string is missing the terminator: '`。→ 两个脚本都存成 **UTF-8 with BOM**。
+2. **PS 5.1 没有 `if` 表达式**：`-f (if (Test-Path x) {1} else {2})` 会报 `无法将"if"项识别为 cmdlet`。→ 先算变量再格式化。
+3. **`Get-Content -Raw` 默认按 ANSI 读**：`version.json` 里的中文被读坏后 `ConvertFrom-Json` 报 `Invalid object passed in, ':' or '}' expected`。→ 全部改成 `-Encoding UTF8`。

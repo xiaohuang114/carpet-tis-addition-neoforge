@@ -3,7 +3,8 @@
     [string]$Owner = $env:GITHUB_OWNER,
     [string]$Repo  = 'carpet-tis-addition-neoforge',
     [string]$Tag   = 'v1.82.0+neoforge.1.21.1',
-    [switch]$SkipRelease
+    [switch]$SkipRelease,
+    [switch]$DryRun
 )
 # Create the GitHub repo (if needed), push the local commit, then publish a release
 # with the packaged assets. Requires a PAT in $env:GITHUB_TOKEN (repo scope) and
@@ -12,6 +13,31 @@
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
+
+if ($DryRun) {
+    $ErrorActionPreference = 'Continue'
+    Write-Host '[dry-run] planned API calls:'
+    Write-Host '  GET    https://api.github.com/repos/$Owner/$Repo            (existence check)'
+    Write-Host '  POST   https://api.github.com/user/repos                    (create when absent)'
+    Write-Host '  POST   https://api.github.com/repos/$Owner/$Repo/releases   (tag v1.82.0+neoforge.1.21.1)'
+    Write-Host '  POST   .../releases/{id}/assets?name=...                    (3 assets)'
+    Write-Host '[dry-run] local git state:'
+    $branch = (& git rev-parse --abbrev-ref HEAD 2>$null)
+    $head = (& git log --oneline -1 2>$null)
+    $remote = (& git remote get-url origin 2>$null)
+    Write-Host ("  branch        : {0}" -f $branch)
+    Write-Host ("  head          : {0}" -f $head)
+    Write-Host ("  origin        : {0}" -f ($(if ($remote) { $remote } else { '(none yet)' })))
+    Write-Host ("  dirty files   : {0}" -f ((& git status --porcelain | Measure-Object).Count))
+    Write-Host '[dry-run] assets that would be uploaded:'
+    foreach ($a in @((Join-Path $root 'dist\TIS-Addition-NeoForge-1.21.1-single-jar.zip'), (Join-Path $root 'dist\TIS-Addition-NeoForge-1.21.1.zip'), (Join-Path $root '_s9_payload\TIS-single-jarjar.jar'))) {
+        $st = 'MISSING'
+        if (Test-Path $a) { $st = '{0:N0} bytes' -f (Get-Item $a).Length }
+        Write-Host ("  {0,-52} {1}" -f (Split-Path $a -Leaf), $st)
+    }
+    Write-Host '[dry-run] no request sent; set GITHUB_TOKEN/GITHUB_OWNER and drop -DryRun to publish.' -ForegroundColor Green
+    exit 0
+}
 
 if ([string]::IsNullOrWhiteSpace($Token)) {
     Write-Host '[publish] GITHUB_TOKEN is empty.' -ForegroundColor Yellow

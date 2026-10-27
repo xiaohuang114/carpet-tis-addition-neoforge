@@ -2,7 +2,8 @@
     [string]$Token = $env:MODRINTH_TOKEN,
     [string]$Slug = 'carpet-tis-addition-neoforge',
     [string]$Title = 'Carpet TIS Addition (NeoForge port)',
-    [switch]$CreateOnly
+    [switch]$CreateOnly,
+    [switch]$DryRun
 )
 # Publish the single-jar build to Modrinth (project + version + icon).
 # Requires a Modrinth PAT with create/upload scope in $env:MODRINTH_TOKEN.
@@ -24,6 +25,25 @@ foreach ($p in @($modJar, $packZip, $bodyMd, $verJson)) {
     if (-not (Test-Path $p)) { throw "missing required file: $p" }
 }
 
+if ($DryRun) {
+    $ver = Get-Content $verJson -Raw -Encoding UTF8 | ConvertFrom-Json
+    $ver | Add-Member -NotePropertyName project_id -NotePropertyValue 'DRYRUN_PROJECT' -Force
+    $ver | Add-Member -NotePropertyName file_parts -NotePropertyValue @('file') -Force
+    $ver | Add-Member -NotePropertyName primary_file -NotePropertyValue 'file' -Force
+    $json = $ver | ConvertTo-Json -Depth 12 -Compress
+    $jarLen = (Get-Item $modJar).Length
+    Write-Host '[dry-run] project payload fields : slug/title/description/body/categories/client_side/server_side/project_type/license_id'
+    Write-Host ("[dry-run] body markdown chars   : {0}" -f (Get-Content $bodyMd -Raw -Encoding UTF8).Length)
+    Write-Host ("[dry-run] version data JSON     : {0} chars" -f $json.Length)
+    Write-Host ("[dry-run] version json valid    : {0}" -f ($ver.version_number))
+    Write-Host ("[dry-run] game_versions/loaders : {0} / {1}" -f ($ver.game_versions -join ','), ($ver.loaders -join ','))
+    Write-Host ("[dry-run] upload file           : {0} ({1} bytes)" -f (Split-Path $modJar -Leaf), $jarLen)
+    $iconDesc = 'MISSING'
+    if (Test-Path $iconJar) { $iconDesc = (Split-Path $iconJar -Leaf) + ' (' + (Get-Item $iconJar).Length + ' bytes)' }
+    Write-Host ("[dry-run] icon                  : {0}" -f $iconDesc)
+    Write-Host '[dry-run] no request sent; set MODRINTH_TOKEN and drop -DryRun to publish.' -ForegroundColor Green
+    exit 0
+}
 if ([string]::IsNullOrWhiteSpace($Token)) {
     Write-Host '[publish] MODRINTH_TOKEN is empty.' -ForegroundColor Yellow
     Write-Host '[publish] set it for this shell, then re-run:' -ForegroundColor Yellow
@@ -60,7 +80,7 @@ if (-not $id) {
 }
 
 if (-not $id) {
-    $body = Get-Content $bodyMd -Raw
+    $body = Get-Content $bodyMd -Raw -Encoding UTF8
     $project = @{
         slug          = $Slug
         title         = $Title
@@ -108,7 +128,7 @@ if (Test-Path $iconOut) {
 if ($CreateOnly) { Write-Host '[publish] -CreateOnly set, stopping before version upload.' -ForegroundColor Cyan; exit 0 }
 
 # --- 3. version (multipart: data JSON + file)
-$ver = Get-Content $verJson -Raw | ConvertFrom-Json
+$ver = Get-Content $verJson -Raw -Encoding UTF8 | ConvertFrom-Json
 $ver | Add-Member -NotePropertyName project_id -NotePropertyValue $id -Force
 $ver | Add-Member -NotePropertyName file_parts -NotePropertyValue @('file') -Force
 $ver | Add-Member -NotePropertyName primary_file -NotePropertyValue 'file' -Force
