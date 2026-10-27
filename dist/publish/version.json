@@ -1,0 +1,12 @@
+{
+  "name": "Carpet TIS Addition (NeoForge port) 1.82.0",
+  "version_number": "1.82.0+neoforge.1.21.1",
+  "changelog": "首个公开版本。\n\n- 从 Carpet TIS Addition 1.82.0（Fabric / MC 1.21.1）移植到 NeoForge 21.1.x，587 条 mixin 与 12 条 client mixin 与上游逐条一致。\n- 第三方库改为独立模块（JarJar 嵌套）：修复了早期打包方式引起的 `java.lang.module.ResolutionException: Modules carpet_tis_addition and conditional_mixin export package me.fallenbreath.conditionalmixin.api.mixin`。\n- 服务端实测：`Done`、`ERROR 0`、`apply failed 0`、applied 437 条 mixin。",
+  "version_type": "release",
+  "status": "listed",
+  "environment": "client_and_server",
+  "game_versions": ["1.21.1"],
+  "loaders": ["neoforge"],
+  "featured": false,
+  "dependencies": []
+}

@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$Token = $env:GITHUB_TOKEN,
     [string]$Owner = $env:GITHUB_OWNER,
     [string]$Repo  = 'carpet-tis-addition-neoforge',

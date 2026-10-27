@@ -19,7 +19,8 @@ _*.csv
 *.log
 
 # ---- packaged artifacts (published as GitHub Release assets instead) ----
-dist/
+dist/*
+!dist/publish/
 
 # ---- IDE / OS ----
 .idea/

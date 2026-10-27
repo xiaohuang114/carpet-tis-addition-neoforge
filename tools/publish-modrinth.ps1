@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$Token = $env:MODRINTH_TOKEN,
     [string]$Slug = 'carpet-tis-addition-neoforge',
     [string]$Title = 'Carpet TIS Addition (NeoForge port)',
