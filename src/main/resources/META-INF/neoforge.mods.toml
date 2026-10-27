@@ -1,0 +1,55 @@
+# Carpet TIS Addition - NeoForge 1.21.1 port
+# S1: mod metadata. S3: formal mixin config wired in (see MIXIN-LOG.md / BLOCKERS.md).
+# NOTE: NeoForge loader 4.0.41 enforces modId regex ^[a-z][a-z0-9_]{1,63}$ ,
+#       so the Fabric id "carpet-tis-addition" must become "carpet_tis_addition".
+
+modLoader="javafml"
+loaderVersion="[4,)"
+license="LGPL-3.0"
+issueTrackerURL="https://github.com/TISUnion/Carpet-TIS-Addition/issues"
+
+[[mods]]
+modId="carpet_tis_addition"
+version="1.82.0"
+displayName="Carpet TIS Addition (NeoForge port)"
+displayURL="https://github.com/TISUnion/Carpet-TIS-Addition"
+logoFile="assets/carpettisaddition/icon.png"
+authors="Fallen_Breath, TISUnion"
+description='''Carpet TIS Addition ported to NeoForge 1.21.1'''
+
+# S3: 正式 mixin 配置唯一入口。不打包 refmap —— dev 环境即 mojmap，
+# 且 @Shadow / 目标成员解析走 MixinEnvironment 的 remapper 链，不读 refmap（见 MIXIN-LOG.md §4）。
+[[mixins]]
+config="carpet-tis-addition.mixins.json"
+
+
+[[dependencies.carpet_tis_addition]]
+modId="neoforge"
+type="required"
+versionRange="[21.1.0,)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.carpet_tis_addition]]
+modId="minecraft"
+type="required"
+versionRange="[1.21,1.21.1]"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.carpet_tis_addition]]
+modId="carpet"
+type="required"
+versionRange="[1.4.147,)"
+ordering="NONE"
+side="BOTH"
+
+# S9: conditional-mixin 现在是独立模块（modId 全小写下划线 = fabric 侧 "conditional-mixin"）。
+# 主 jar 不再拍平 me/fallenbreath/**，故必须显式声明依赖，缺失时 FML 会在 mod 解析阶段报
+# "requires conditional_mixin" 并拒绝启动（这是预期行为，见 S9-ACCEPT.md T3-A）。
+[[dependencies.carpet_tis_addition]]
+modId="conditional_mixin"
+type="required"
+versionRange="[0.6.4,)"
+ordering="NONE"
+side="BOTH"

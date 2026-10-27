@@ -1,0 +1,88 @@
+/*
+ * This file is part of the Carpet TIS Addition project, licensed under the
+ * GNU Lesser General Public License v3.0
+ *
+ * Copyright (C) 2023  Fallen_Breath and contributors
+ *
+ * Carpet TIS Addition is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * Carpet TIS Addition is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with Carpet TIS Addition.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+package carpettisaddition.mixins.rule.enchantCommandNoRestriction;
+
+import carpettisaddition.CarpetTISAdditionSettings;
+import com.llamalad7.mixinextras.injector.ModifyExpressionValue;
+import net.minecraft.world.item.enchantment.Enchantment;
+import net.minecraft.server.commands.EnchantCommand;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.ModifyArg;
+
+import java.util.Collection;
+import java.util.Collections;
+
+@Mixin(value = EnchantCommand.class, priority = 900)
+public abstract class EnchantCommandMixin
+{
+	@ModifyExpressionValue(
+			method = "enchant",
+			at = @At(
+					value = "INVOKE",
+					target = "Lnet/minecraft/world/item/enchantment/Enchantment;getMaxLevel()I"
+			)
+	)
+	private static int enchantCommandNoRestriction_removeLevelRestriction(int maxLevel)
+	{
+		if (CarpetTISAdditionSettings.enchantCommandNoRestriction)
+		{
+			maxLevel = Integer.MAX_VALUE;
+		}
+		return maxLevel;
+	}
+
+	@ModifyExpressionValue(
+			method = "enchant",
+			at = @At(
+					value = "INVOKE",
+					// S4 / B-class: 1.21.1 moved the "can this stack take this enchantment" test from
+	// Enchantment#canEnchant(ItemStack) to ItemStack#supportsEnchantment(Holder), called at
+	// offset 105 of EnchantCommand#enchant (javap -c). Same boolean, same handler body.
+					target = "Lnet/minecraft/world/item/ItemStack;supportsEnchantment(Lnet/minecraft/core/Holder;)Z"
+			)
+	)
+	private static boolean enchantCommandNoRestriction_removeAcceptableCheck(boolean isAcceptable)
+	{
+		if (CarpetTISAdditionSettings.enchantCommandNoRestriction)
+		{
+			isAcceptable = true;
+		}
+		return isAcceptable;
+	}
+
+	@ModifyArg(
+			method = "enchant",
+			at = @At(
+					value = "INVOKE",
+					target = "Lnet/minecraft/world/item/enchantment/EnchantmentHelper;isEnchantmentCompatible(Ljava/util/Collection;Lnet/minecraft/core/Holder;)Z"
+			),
+			index = 0
+	)
+	private static Collection<Enchantment> enchantCommandNoRestriction_removeAlreadyExistingCheck(Collection<Enchantment> enchantments)
+	{
+		if (CarpetTISAdditionSettings.enchantCommandNoRestriction)
+		{
+			return Collections.emptySet();
+		}
+		return enchantments;
+	}
+}

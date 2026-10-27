@@ -1,0 +1,74 @@
+/*
+ * This file is part of the Carpet TIS Addition project, licensed under the
+ * GNU Lesser General Public License v3.0
+ *
+ * Copyright (C) 2023  Fallen_Breath and contributors
+ *
+ * Carpet TIS Addition is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * Carpet TIS Addition is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with Carpet TIS Addition.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+package carpettisaddition.commands.removeentity;
+
+import carpettisaddition.CarpetTISAdditionSettings;
+import carpettisaddition.commands.AbstractCommand;
+import carpettisaddition.commands.CommandTreeContext;
+import carpettisaddition.utils.CarpetModUtil;
+import carpettisaddition.utils.Messenger;
+import com.mojang.brigadier.builder.LiteralArgumentBuilder;
+import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.world.entity.Entity;
+
+import java.util.Collection;
+
+import static net.minecraft.commands.Commands.argument;
+import static net.minecraft.commands.Commands.literal;
+import static net.minecraft.commands.arguments.EntityArgument.entities;
+import static net.minecraft.commands.arguments.EntityArgument.getEntities;
+
+public class RemoveEntityCommand extends AbstractCommand
+{
+	private static final String NAME = "removeentity";
+	private static final RemoveEntityCommand INSTANCE = new RemoveEntityCommand();
+
+	private RemoveEntityCommand()
+	{
+		super(NAME);
+	}
+
+	public static RemoveEntityCommand getInstance()
+	{
+		return INSTANCE;
+	}
+
+	@Override
+	public void registerCommand(CommandTreeContext.Register context)
+	{
+		LiteralArgumentBuilder<CommandSourceStack> node = literal(NAME).
+				requires(
+						player -> CarpetModUtil.canUseCommand(player, CarpetTISAdditionSettings.commandRemoveEntity)
+				).
+				then(argument("target", entities()).
+						executes(c -> removeEntities(c.getSource(), getEntities(c, "target")))
+				);
+
+		context.dispatcher.register(node);
+	}
+
+	private int removeEntities(CommandSourceStack source, Collection<? extends Entity> entities)
+	{
+		int num = RemoveEntityUtils.removeEntities(entities);
+		Messenger.tell(source, tr("success", num), true);
+		return num;
+	}
+}

@@ -1,0 +1,106 @@
+/*
+ * This file is part of the Carpet TIS Addition project, licensed under the
+ * GNU Lesser General Public License v3.0
+ *
+ * Copyright (C) 2024  Fallen_Breath and contributors
+ *
+ * Carpet TIS Addition is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * Carpet TIS Addition is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with Carpet TIS Addition.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+package carpettisaddition.mixins.rule.syncServerMsptMetricsData;
+
+import carpettisaddition.CarpetTISAdditionSettings;
+import carpettisaddition.helpers.rule.syncServerMsptMetricsData.ServerMsptMetricsDataSyncer;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.util.debugchart.TpsDebugDimensions;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.ModifyArg;
+
+/**
+ * mc1.14 ~ mc1.20.4: subproject 1.15.2 (main project)
+ * mc1.20.5+        : subproject 1.20.6        <--------
+ */
+@Mixin(MinecraftServer.class)
+public abstract class MinecraftServerMixin
+{
+	@Shadow private int tickCount;
+
+	@ModifyArg(
+			method = "logTickMethodTime",
+			at = @At(
+					value = "INVOKE",
+					target = "Lnet/minecraft/util/debugchart/SampleLogger;logPartialSample(JI)V"
+			)
+	)
+	private long sendServerTpsMetricsData_broadcastTickServer(long nanosecond)
+	{
+		if (CarpetTISAdditionSettings.syncServerMsptMetricsData)
+		{
+			ServerMsptMetricsDataSyncer.getInstance().broadcastSample(this.tickCount, nanosecond, TpsDebugDimensions.TICK_SERVER_METHOD);
+		}
+		return nanosecond;
+	}
+
+	@ModifyArg(
+			method = "logFullTickTime",
+			at = @At(
+					value = "INVOKE",
+					target = "Lnet/minecraft/util/debugchart/SampleLogger;logSample(J)V"
+			)
+	)
+	private long sendServerTpsMetricsData_broadcastFullTick(long nanosecond)
+	{
+		if (CarpetTISAdditionSettings.syncServerMsptMetricsData)
+		{
+			ServerMsptMetricsDataSyncer.getInstance().broadcastSample(this.tickCount, nanosecond, TpsDebugDimensions.FULL_TICK);
+		}
+		return nanosecond;
+	}
+
+	@ModifyArg(
+			method = "finishMeasuringTaskExecutionTime",
+			at = @At(
+					value = "INVOKE",
+					target = "Lnet/minecraft/util/debugchart/SampleLogger;logPartialSample(JI)V",
+					ordinal = 0
+			)
+	)
+	private long sendServerTpsMetricsData_broadcastScheduledTask(long nanosecond)
+	{
+		if (CarpetTISAdditionSettings.syncServerMsptMetricsData)
+		{
+			ServerMsptMetricsDataSyncer.getInstance().broadcastSample(this.tickCount, nanosecond, TpsDebugDimensions.SCHEDULED_TASKS);
+		}
+		return nanosecond;
+	}
+
+	@ModifyArg(
+			method = "finishMeasuringTaskExecutionTime",
+			at = @At(
+					value = "INVOKE",
+					target = "Lnet/minecraft/util/debugchart/SampleLogger;logPartialSample(JI)V",
+					ordinal = 1
+			)
+	)
+	private long sendServerTpsMetricsData_broadcastIdle(long nanosecond)
+	{
+		if (CarpetTISAdditionSettings.syncServerMsptMetricsData)
+		{
+			ServerMsptMetricsDataSyncer.getInstance().broadcastSample(this.tickCount, nanosecond, TpsDebugDimensions.IDLE);
+		}
+		return nanosecond;
+	}
+}

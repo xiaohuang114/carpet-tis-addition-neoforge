@@ -1,0 +1,310 @@
+plugins {
+    id 'java'
+    id 'net.neoforged.moddev' version '2.0.78'
+}
+
+// TIS-SWITCH: 源集固定为 src/main/java。NeoForge 的 @Mod 入口类（carpettisaddition.neoforge.TISNeoForgeMod）
+// 必须在 main 源集里，否则 runServer 加载到的是冒烟桩而不是真实 mod，验收会变成假绿。
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+sourceSets.main.java.setSrcDirs(['src/main/java']) // TIS-SWITCH
+sourceSets.main.resources.setSrcDirs(['src/main/resources']) // TIS-SWITCH
+
+repositories {
+    mavenCentral()
+    // 镜像兜底：maven.neoforged.net 直连不可达时由代理之外的备用源补齐
+    maven {
+        name = 'BMCLAPI'
+        url = 'https://bmclapi2.bangbang93.com/maven'
+        content {
+            includeGroup 'net.neoforged'
+            includeGroup 'net.minecraftforge'
+            includeGroup 'cpw.mods'
+        }
+    }
+}
+
+// TIS-S3: mixin 诊断开关转发（脚手架，不进发布 jar）。
+// Gradle 的 -D 只落在 Gradle daemon 的 JVM 上，而 runServer 是 fork 出去的独立 JVM，
+// 不显式转发的话 -Dmixin.debug.verbose=true 对 mixin 子系统完全无效（也就没有 applied 记录）。
+// 两种写法都认：-Pmixin.debug.verbose=true 或 -Dmixin.debug.verbose=true
+def mixinDiagnosticKeys = [
+        'mixin.debug.verbose',
+        'mixin.debug.export',
+        'mixin.debug.export.decompile',
+        'mixin.debug.countInjections',
+        'mixin.debug.audit',
+]
+def mixinDebugProps = mixinDiagnosticKeys.collectEntries { String k ->
+    def fromProject = providers.gradleProperty(k)
+    def fromSystem = providers.systemProperty(k)
+    def value = fromProject.isPresent() ? fromProject.get() : (fromSystem.isPresent() ? fromSystem.get() : null)
+    [(k): (value == null ? null : value.toString())]
+}.findAll { k, v -> v != null && v != 'false' }
+
+neoForge {
+    version = project.neoforge_version
+
+    // AT：Fabric 侧 accesswidener 的等价物（编译期与运行期都需要）
+    accessTransformers.from 'src/main/resources/META-INF/accesstransformer.cfg'
+
+    // 注册本工程 mod：让 MDG 把 classes + resources 一起通过 -Dfml.modFolders 传给 FML
+    mods {
+        main {
+            sourceSet sourceSets.main
+        }
+    }
+
+    runs {
+        client {
+            client()
+            mixinDebugProps.each { k, v -> systemProperty(k, v) }
+        }
+        server {
+            server()
+            mixinDebugProps.each { k, v -> systemProperty(k, v) }
+        }
+    }
+}
+
+// TIS-S2: TinyMappingV2Reader 需要 net.fabricmc.mapping.reader.v2.* (TinyV2Factory / TinyVisitor / MappingGetter)
+// 实证：该包名不在 net.fabricmc:mapping-io（0.8.0 里只有 net.fabricmc.mappingio.*，实测 0 条 reader/v2 条目），
+//       真正的提供者是 net.fabricmc:tiny-mappings-parser。maven.fabricmc.net 不可直连，
+//       本机 Gradle 缓存里已有该 artifact，优先直接引用，找不到才走仓库。
+def tinyMapCacheDir = new File(gradle.gradleUserHomeDir, 'caches/modules-2/files-2.1/net.fabricmc/tiny-mappings-parser')
+def tinyMapJars = []
+if (tinyMapCacheDir.isDirectory()) {
+    tinyMapCacheDir.eachFileRecurse { f ->
+        if (f.isFile() && f.name ==~ /tiny-mappings-parser-\d[^\/]*\.jar/ && !f.name.contains('sources')) {
+            tinyMapJars << f
+        }
+    }
+    tinyMapJars.sort { it.name }
+}
+logger.lifecycle("[TIS] tiny-mappings-parser: ${tinyMapJars.isEmpty() ? 'cache miss -> maven' : tinyMapJars.first().absolutePath}")
+
+// ═══ TIS-S9 / B-S9-1: conditional-mixin 不再拍平进主 jar ═══
+// 旧做法（S2~S8）把 conditional-mixin 的 me/fallenbreath/** 与一组 net/fabricmc/loader/** shim 拍进发布 jar，
+// 让它以"本 mod 的一部分"进入 game layer。只要整合包里还有任何别的 mod 自带真正的 conditional-mixin
+// （例：TweakerMoreForge 通过 jar-in-jar 内嵌 conditional-mixin-neoforge-0.6.4.jar，modId=conditional_mixin），
+// 两个 module 就会同时导出包 me.fallenbreath.conditionalmixin.api.mixin，modlauncher 直接拒绝启动：
+//   java.lang.module.ResolutionException: Modules carpet_tis_addition and conditional_mixin
+//   export package me.fallenbreath.conditionalmixin.api.mixin to module jecharacters
+// 修法（与上游一致）：conditional-mixin 以独立模块 jar 形式随包发布（modId=conditional_mixin, version=0.6.4），
+// 主 jar 只保留一条 required 依赖声明（见 src/main/resources/META-INF/neoforge.mods.toml）。
+// 采用上游官方 NeoForge 产物（libs/conditional-mixin-neoforge-0.6.4.jar，与整合包里 TweakerMoreForge 内嵌那份
+// 同源同版本），原样发布、不二次改写，以保住"整合包已有则不必再放"的可去重性。
+// 原 fabric 产物 libs/conditional-mixin.jar 与 compat-src/fabric-loader-shim 仅留作历史取证（S2 的坑 A/B），
+// 不再参与编译与发布链路：官方 neo 产物自带 api/util/neoforge/VersionCheckerImpl，不需要 fabric-loader bridge。
+def strippedConditionalMixinDir = layout.buildDirectory.dir('libs')
+def vendoredConditionalMixinNeo = file('libs/conditional-mixin-neoforge-0.6.4.jar')
+def packageConditionalMixin = tasks.register('packageConditionalMixin') {
+    group = 'build'
+    description = 'TIS-S9: 把上游 conditional-mixin-neoforge-0.6.4.jar 原样发布到 build/libs（独立模块，不拍平）'
+    def target = strippedConditionalMixinDir.get().file('conditional-mixin-neoforge-0.6.4.jar').asFile
+    inputs.file(vendoredConditionalMixinNeo)
+    // 只声明这一个文件为产出：build/libs 同时是 releaseJar / stripTinyMappings 的产出目录，
+    // 若把整个目录声明成本任务的输出，Gradle 会判 compileJava 与本任务存在隐式依赖冲突。
+    outputs.file(target)
+    doLast {
+        if (!vendoredConditionalMixinNeo.isFile()) {
+            throw new GradleException("missing vendored jar: ${vendoredConditionalMixinNeo}")
+        }
+        target.parentFile.mkdirs()
+        java.nio.file.Files.copy(vendoredConditionalMixinNeo.toPath(), target.toPath(),
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+        logger.lifecycle("[TIS-S9] conditional-mixin module jar: ${target.absolutePath} (${target.length()} bytes)")
+    }
+}
+
+// TIS-S2: tiny-mappings-parser 同样是运行期必需的库（StackTraceDeobfuscator -> TinyMappingV2Reader）。
+// 光挂在 Gradle runtimeClasspath 上，FML 的 ModuleClassLoader 读不到，会 NoClassDefFoundError: TinyVisitor。
+// 于是把它也包进一个 dev-only 的“库 mod”（带 neoforge.mods.toml），让类进入 game layer。
+def tinyMapShimMetaDir = layout.buildDirectory.dir('generated/tiny-mappings-shim')
+def genTinyMappingShimMeta = tasks.register('genTinyMappingShimMeta') {
+    def outDir = tinyMapShimMetaDir
+    outputs.dir(outDir)
+    doLast {
+        def f = outDir.get().file('META-INF/neoforge.mods.toml').asFile
+        f.parentFile.mkdirs()
+        f.text = [
+                'modLoader="javafml"',
+                'loaderVersion="[4,)"',
+                'license="Apache-2.0"',
+                '',
+                '[[mods]]',
+                'modId="tiny_mappings_parser_lib"',
+                'version="0.3.0"',
+                'displayName="tiny-mappings-parser (runtime library)"',
+                "description='''tiny-mappings-parser 0.3.0: Carpet TIS Addition 的运行期依赖（S9 起独立模块发布，不再拍平进主 jar）'''",
+                '',
+                '[[dependencies.tiny_mappings_parser_lib]]',
+                'modId="neoforge"',
+                'type="required"',
+                'versionRange="[21.1.0,)"',
+                'ordering="NONE"',
+                'side="BOTH"',
+                ''
+        ].join('\n')
+    }
+}
+def stripTinyMappings = tasks.register('stripTinyMappings', Jar) {
+    archiveFileName = 'tiny-mappings-lib.jar'
+    destinationDirectory = strippedConditionalMixinDir
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    if (!tinyMapJars.isEmpty()) {
+        from zipTree(tinyMapJars.first())
+    }
+    from genTinyMappingShimMeta
+    exclude 'META-INF/MANIFEST.MF'
+    exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA'
+}
+def strippedTinyMapJar = strippedConditionalMixinDir.map { it.file('tiny-mappings-lib.jar') }
+
+dependencies {
+    implementation files('libs/carpet.jar')
+    // TIS-S9：conditional-mixin 以独立模块 jar 提供（官方 NeoForge 产物），编译期与 dev run 共用同一份；
+    // 不再编译 fabric 版、也不再注入 fabric-loader shim，彻底避免 me.fallenbreath.* / net.fabricmc.loader.* 被拍平。
+    implementation files(vendoredConditionalMixinNeo)
+    compileOnly files('libs/lithium.jar')
+    compileOnly 'org.jetbrains:annotations:24.1.0'
+    // TIS-S2
+    if (!tinyMapJars.isEmpty()) {
+        implementation files(strippedTinyMapJar) { builtBy stripTinyMappings }
+    } else {
+        implementation 'net.fabricmc:tiny-mappings-parser:0.3.0+build.17'
+    }
+}
+
+// TIS-S2: 翻译资源转换。上游在 build 阶段把 assets/carpettisaddition/lang/*.yml 展平成 Minecraft 认识的
+// <lang>.json（TranslationLoader 只读 .json: "assets/carpettisaddition/lang/<lang>.json"）。
+// 不做这一步，dev 环境（!FMLEnvironment.production）下 TranslationLoader 会直接抛 RuntimeException，
+// 导致 @Mod 构造失败、服务器起不来。产物输出到独立目录并挂进 main 源集输出，不覆盖 processResources。
+configurations {
+    translationsYaml
+}
+
+dependencies {
+    // 只用 SnakeYAML 解析，运行期不需要（mod 运行期读的是 json）
+    translationsYaml 'org.yaml:snakeyaml:2.2'
+}
+
+// 把 YAML 树按 "." 展平成 Minecraft 习惯的扁平 key（数值下标 '0'/'1' 也照常成为 key 的一部分）
+// TIS-S6: yamlang 用子键 "." 表示「节点自身的值」，例如
+//     rain_in:
+//       .: Rain in %1$s
+//       with_thunder: ...
+// 正确语义是扁平化结果落在父键 `...weather.forecast.rain_in` 本身；按普通子键拼会得到 `rain_in..`（S6 前的缺陷）。
+def flattenTranslationNode(Object node, String prefix, Map<String, String> acc) {
+    if (node instanceof Map) {
+        ((Map) node).each { k, v ->
+            String childKey = String.valueOf(k)
+            String childPrefix = childKey == '.' ? prefix : (prefix ? prefix + '.' + childKey : childKey)
+            flattenTranslationNode(v, childPrefix, acc)
+        }
+    } else if (node != null) {
+        acc[prefix] = String.valueOf(node)
+    }
+}
+
+def translationsOutDir = layout.buildDirectory.dir('generated/translations')
+
+def convertTranslations = tasks.register('convertTranslations') {
+    def langDir = layout.projectDirectory.dir('src/main/resources/assets/carpettisaddition/lang')
+    def yamlFiles = fileTree(langDir) { include '*.yml' }
+    inputs.files(yamlFiles)
+    outputs.dir(translationsOutDir)
+    doLast {
+        def urls = configurations.translationsYaml.files.collect { it.toURI().toURL() } as URL[]
+        def loader = new URLClassLoader(urls, (ClassLoader) null)
+        try {
+            def yaml = loader.loadClass('org.yaml.snakeyaml.Yaml').getDeclaredConstructor().newInstance()
+            def outLangDir = translationsOutDir.get().dir('assets/carpettisaddition/lang').asFile
+            new File(outLangDir, 'meta').mkdirs()
+            yamlFiles.each { f ->
+                def flat = new LinkedHashMap<String, String>()
+                flattenTranslationNode(yaml.load(f.getText('UTF-8')), '', flat)
+                def out = new File(outLangDir, f.name.replaceFirst(/\.yml$/, '.json'))
+                out.setText(groovy.json.JsonOutput.toJson(flat) + '\n', 'UTF-8')
+                logger.lifecycle("[TIS] translations ${f.name} -> ${out.name} (${flat.size()} keys)")
+            }
+        } finally {
+            loader.close()
+        }
+    }
+}
+
+// 把生成的 json 并入 processResources，保证它在 mod 运行期 classpath 上（不放独立目录，避免 MDG 漏挂）
+tasks.named('processResources') {
+    dependsOn convertTranslations
+    from(translationsOutDir)
+}
+
+sourceSets.main.output.dir(translationsOutDir, builtBy: convertTranslations)
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+tasks.named('compileJava') {
+    doFirst {
+        logger.lifecycle("[TIS] sourceSet=src/main/java  files=${source.asFileTree.files.size()}")
+    }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// TIS-S7: 发布包 releaseJar（坑 C：MDG 2.0.78 没有 jarJar，用原生 Jar 合并等价实现）
+// FML 只认 jar 内的 META-INF/neoforge.mods.toml 与 classpath，合并 jar 与内嵌 jar 语义等价。
+//
+// 合并顺序 = 优先级（duplicatesStrategy=EXCLUDE 让"先 from 的赢"）：
+//   1) sourceSets.main.output   → 本 mod 类 + 资源（含**唯一合法**的 META-INF/neoforge.mods.toml / mixins.json / lang json）
+//   2) build/classes/fabric-loader-shim → 坑 B：FabricLoader 等 9 个类，必须在 conditional-mixin-lib 之前
+//   3) conditional-mixin-lib    → 坑 A：只取 me/** net/** LICENSE*，剔 META-INF/** 与 Loom/Gradle 垃圾
+//   4) tiny-mappings-lib        → TinyV2 reader + 传递依赖，剔 META-INF/**
+// 坑 A/B/C 的取证见 _s7_t1_inventory.md、MIXIN-LOG.md、PORT-STATE.md §15。
+// TIS-S7: 发布名就是交付名 carpet-tis-addition-1.82.0+neoforge.1.21.1.jar
+//       （version = 1.82.0+neoforge.1.21.1，不带 classifier，避免出现 -neoforge 尾巴）
+def releaseVersion = "${mod_version}+neoforge.${minecraft_version}"
+
+tasks.register('releaseJar', Jar) {
+    group = 'build'
+    description = 'TIS-S9 发布包：只含本 mod 自身（第三方库一律独立模块发布）'
+
+    archiveBaseName = 'carpet-tis-addition'
+    archiveVersion = releaseVersion
+    destinationDirectory = layout.buildDirectory.dir('libs')
+
+    // 1) 本 mod 的类与资源（资源含 convertTranslations 产出的 lang/*.json：已挂进 sourceSets.main.output）
+    from sourceSets.main.output
+
+    // TIS-S9: 主 jar 不再合并任何第三方包。
+    //   * me/**            → conditional-mixin（独立模块发布，避免 ResolutionException）
+    //   * net/**           → fabric-loader-shim + tiny-mappings-parser（tiny-mappings 独立模块发布）
+    // 断言见 S9-ACCEPT.md T1：解压后 me/ 与 net/ 两个顶层目录必须不存在。
+    exclude 'me/**'
+    exclude 'net/**'
+
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+
+    // 签名残留一律不进包
+    exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA'
+    exclude 'architectury_inject_*/**', 'previous-compilation-data.bin'
+
+    // 显式前置：先产出翻译，再合包
+    dependsOn tasks.named('convertTranslations')
+
+    doFirst {
+        logger.lifecycle("[TIS-S9] releaseJar = ${archiveFile.get().asFile.name}")
+        logger.lifecycle("[TIS-S9]   不含 me/** 与 net/**；conditional-mixin 走独立模块 ${vendoredConditionalMixinNeo.name}")
+        logger.lifecycle("[TIS-S9]   tiny-mappings 走独立模块 ${file('build/libs/tiny-mappings-lib.jar').name}")
+    }
+
+    doLast {
+        def jarFile = archiveFile.get().asFile
+        logger.lifecycle("[TIS-S9] produced ${jarFile.absolutePath}  (${jarFile.length()} bytes)")
+    }
+}

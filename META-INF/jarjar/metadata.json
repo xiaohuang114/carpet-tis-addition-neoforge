@@ -1,0 +1,16 @@
+{
+  "jars": [
+    {
+      "identifier": {
+        "group": "com.github.Fallen-Breath.conditional-mixin",
+        "artifact": "conditional-mixin-neoforge"
+      },
+      "version": {
+        "range": "[0.6.4,)",
+        "artifactVersion": "0.6.4"
+      },
+      "path": "META-INF/jarjar/conditional-mixin-neoforge-0.6.4.jar",
+      "isObfuscated": false
+    }
+  ]
+}

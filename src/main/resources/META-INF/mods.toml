@@ -1,0 +1,9 @@
+displayURL="https://github.com/TISUnion/Carpet-TIS-Addition"
+authors="Fallen_Breath, TISUnion"
+
+[[mods]]
+modId="carpet_tis_addition"
+version="1.82.0"
+displayName="Carpet TIS Addition (NeoForge port)"
+logoFile="assets/carpettisaddition/icon.png"
+description="Carpet TIS Addition 的 NeoForge 1.21.1 移植版。一堆 Carpet 的扩展功能、调试工具与性能剖析器。"

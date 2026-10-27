@@ -1,0 +1,322 @@
+/*
+ * This file is part of the Carpet TIS Addition project, licensed under the
+ * GNU Lesser General Public License v3.0
+ *
+ * Copyright (C) 2023  Fallen_Breath and contributors
+ *
+ * Carpet TIS Addition is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * Carpet TIS Addition is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with Carpet TIS Addition.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+package carpettisaddition.commands.speedtest;
+
+import carpettisaddition.CarpetTISAdditionMod;
+import carpettisaddition.CarpetTISAdditionSettings;
+import carpettisaddition.commands.AbstractCommand;
+import carpettisaddition.commands.CommandTreeContext;
+import carpettisaddition.commands.speedtest.ping.PongReceiver;
+import carpettisaddition.commands.speedtest.session.SpeedTestClientSessionHolder;
+import carpettisaddition.commands.speedtest.session.SpeedTestServerSession;
+import carpettisaddition.commands.speedtest.session.SpeedTestServerSessionHolder;
+import carpettisaddition.commands.speedtest.tester.*;
+import carpettisaddition.network.HandlerContext;
+import carpettisaddition.network.TISCMClientPacketHandler;
+import carpettisaddition.network.TISCMProtocol;
+import carpettisaddition.network.TISCMServerPacketHandler;
+import carpettisaddition.utils.CarpetModUtil;
+import carpettisaddition.utils.Messenger;
+import carpettisaddition.utils.NbtUtils;
+import carpettisaddition.utils.command.SimpleCommandBuilder;
+import com.google.common.collect.Lists;
+import com.mojang.brigadier.exceptions.CommandSyntaxException;
+import net.minecraft.ChatFormatting;
+import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.server.level.ServerPlayer;
+import org.jetbrains.annotations.Nullable;
+
+import java.util.List;
+
+import static com.mojang.brigadier.arguments.DoubleArgumentType.doubleArg;
+import static com.mojang.brigadier.arguments.DoubleArgumentType.getDouble;
+import static com.mojang.brigadier.arguments.IntegerArgumentType.getInteger;
+import static com.mojang.brigadier.arguments.IntegerArgumentType.integer;
+
+public class SpeedTestCommand extends AbstractCommand
+{
+	public static final String NAME = "speedtest";
+	private static final SpeedTestCommand INSTANCE = new SpeedTestCommand();
+
+	private final SpeedTestClientSessionHolder clientSessionHolder = new SpeedTestClientSessionHolder();  // used in client only
+	private final SpeedTestServerSessionHolder serverSessionHolder = new SpeedTestServerSessionHolder();  // used in server only
+
+	public SpeedTestCommand()
+	{
+		super(NAME);
+	}
+
+	public static SpeedTestCommand getInstance()
+	{
+		return INSTANCE;
+	}
+
+	// ============================ lifecycle ============================
+
+	@Override
+	public void registerCommand(CommandTreeContext.Register context)
+	{
+		SimpleCommandBuilder builder = new SimpleCommandBuilder();
+		builder.command(NAME, c -> showHelp(c.getSource()));
+		builder.command(NAME + " download", c -> testDownload(c.getSource(), Math.min(10, CarpetTISAdditionSettings.speedTestCommandMaxTestSize)));
+		builder.command(NAME + " download <size_mib>", c -> testDownload(c.getSource(), getInteger(c, "size_mib")));
+		builder.command(NAME + " upload", c -> testUpload(c.getSource(), Math.min(10, CarpetTISAdditionSettings.speedTestCommandMaxTestSize)));
+		builder.command(NAME + " upload <size_mib>", c -> testUpload(c.getSource(), getInteger(c, "size_mib")));
+		builder.command(NAME + " ping", c -> testPing(c.getSource(), 3, 1));
+		builder.command(NAME + " ping <count>", c -> testPing(c.getSource(), getInteger(c, "count"), 1));
+		builder.command(NAME + " ping <count> <interval>", c -> testPing(c.getSource(), getInteger(c, "count"), getDouble(c, "interval")));
+		builder.command(NAME + " abort", c -> abortTest(c.getSource()));
+		builder.literal(NAME).requires(s -> CarpetModUtil.canUseCommand(s, CarpetTISAdditionSettings.commandSpeedTest));
+		builder.argument("<size_mib>", integer(1));
+		builder.argument("<count>", integer(1));
+		builder.argument("<interval>", doubleArg(0, 10));
+		builder.registerCommand(context);
+	}
+
+	public void onServerClosed()
+	{
+		this.clientSessionHolder.reset();
+		this.serverSessionHolder.reset();
+	}
+
+	public void onPlayerDisconnected(ServerPlayer player)
+	{
+		this.serverSessionHolder.abortAndClearFor(player);
+	}
+
+	// ============================ commands ============================
+
+	private int showHelp(CommandSourceStack source) throws CommandSyntaxException
+	{
+		ServerPlayer player = source.getPlayerOrException();
+
+		List<TISCMProtocol.S2C> idToCheck = Lists.newArrayList(
+				TISCMProtocol.S2C.SPEED_TEST_DOWNLOAD_PAYLOAD,
+				TISCMProtocol.S2C.SPEED_TEST_UPLOAD_REQUEST,
+				TISCMProtocol.S2C.SPEED_TEST_PING,
+				TISCMProtocol.S2C.SPEED_TEST_ABORT
+		);
+
+		int cnt = idToCheck.stream().mapToInt(id -> {
+			boolean ok = TISCMServerPacketHandler.getInstance().doesClientSupport(player.connection, id);
+			return ok ? 1 : 0;
+		}).sum();
+
+		MutableComponent supportState;
+		if (cnt == 0)
+		{
+			supportState = Messenger.formatting(tr("help.support_state.no"), ChatFormatting.RED);
+		}
+		else if (cnt < idToCheck.size())
+		{
+			supportState = Messenger.formatting(tr("help.support_state.partial"), ChatFormatting.YELLOW);
+		}
+		else
+		{
+			supportState = Messenger.formatting(tr("help.support_state.yes"), ChatFormatting.GREEN);
+		}
+
+		Messenger.tell(player, tr(
+				"help",
+				Messenger.hover(
+						Messenger.s(String.valueOf(CarpetTISAdditionSettings.speedTestCommandMaxTestSize)),
+						tr("help.test_size_rule_hint")
+				),
+				supportState
+		));
+		return 0;
+	}
+
+	private int abortTest(CommandSourceStack source) throws CommandSyntaxException
+	{
+		ServerPlayer player = source.getPlayerOrException();
+
+		SpeedTestServerSession session = this.serverSessionHolder.getFor(player);
+		if (session == null)
+		{
+			Messenger.tell(source, tr("command.abort_no_test"));
+			return 0;
+		}
+
+		session.getMessenger().sendMessage(tr("command.abort_test"), false);
+		this.serverSessionHolder.abortAndClearFor(player);
+
+		return 1;
+	}
+
+	private int testDownload(CommandSourceStack source, int testSizeMb) throws CommandSyntaxException
+	{
+		ServerPlayer player = source.getPlayerOrException();
+
+		if (!checkSpeedTestRequirements(player, testSizeMb, TISCMProtocol.S2C.SPEED_TEST_DOWNLOAD_PAYLOAD))
+		{
+			return 0;
+		}
+
+		new SpeedTestDownloader(
+				player, testSizeMb, this.serverSessionHolder,
+				new SpeedTestReporter(TestType.DOWNLOAD, source)
+		).start();
+
+		return 1;
+	}
+
+	private int testUpload(CommandSourceStack source, int testSizeMb) throws CommandSyntaxException
+	{
+		ServerPlayer player = source.getPlayerOrException();
+
+		if (!checkSpeedTestRequirements(player, testSizeMb, TISCMProtocol.S2C.SPEED_TEST_UPLOAD_REQUEST))
+		{
+			return 0;
+		}
+
+		new SpeedTestServerUploadReceiver(
+				player, testSizeMb, this.serverSessionHolder,
+				new SpeedTestReporter(TestType.UPLOAD, source)
+		).start();
+
+		return 1;
+	}
+
+	private int testPing(CommandSourceStack source, int count, double interval) throws CommandSyntaxException
+	{
+		ServerPlayer player = source.getPlayerOrException();
+
+		if (!checkSpeedTestRequirements(player, null, TISCMProtocol.S2C.SPEED_TEST_PING))
+		{
+			return 0;
+		}
+
+		new SpeedTestPinger(source, player, count, interval, this.serverSessionHolder).start();
+
+		return 1;
+	}
+
+	// ============================ utils ============================
+
+	@SuppressWarnings("BooleanMethodIsAlwaysInverted")
+	private boolean checkSpeedTestRequirements(ServerPlayer player, @Nullable Integer testSizeMb, TISCMProtocol.S2C ...packetIds)
+	{
+		if (testSizeMb != null && testSizeMb > CarpetTISAdditionSettings.speedTestCommandMaxTestSize)
+		{
+			Messenger.tell(player, tr("command.test_size_too_large", testSizeMb, CarpetTISAdditionSettings.speedTestCommandMaxTestSize));
+			return false;
+		}
+
+		if (!CarpetTISAdditionSettings.tiscmNetworkProtocol)
+		{
+			Messenger.tell(player, tr("command.tiscm_protocol_disabled"));
+			return false;
+		}
+
+		for (TISCMProtocol.S2C packetId : packetIds)
+		{
+			if (!TISCMServerPacketHandler.getInstance().doesClientSupport(player.connection, packetId))
+			{
+				Messenger.tell(player, tr("command.client_not_supported"));
+				return false;
+			}
+		}
+
+		if (this.serverSessionHolder.getFor(player) != null)
+		{
+			Messenger.tell(player, tr("command.has_ongoing"));
+			return false;
+		}
+
+		return true;
+	}
+
+	// ============================ network ============================
+
+	public void handleServerUploadRequest(HandlerContext.S2C ctx)
+	{
+		int testSizeMb = NbtUtils.getIntOrZero(ctx.payload, "size_mb");
+		if (this.clientSessionHolder.getUploader() != null)
+		{
+			CarpetTISAdditionMod.LOGGER.error("Received upload speed test request, but there's ongoing test. Overriding");
+		}
+
+		CarpetTISAdditionMod.LOGGER.info("Starting upload speed test, test size = {}MiB", testSizeMb);
+		new SpeedTestClientUploader(testSizeMb, this.clientSessionHolder).start();
+	}
+
+	public void handleServerPing(HandlerContext.S2C ctx)
+	{
+		String pingType = NbtUtils.getStringOrEmpty(ctx.payload, "type");
+		switch (pingType)
+		{
+			case "ping":
+				TISCMClientPacketHandler.getInstance().sendPacket(TISCMProtocol.C2S.SPEED_TEST_PING, nbt -> {
+					nbt.merge(ctx.payload);
+					nbt.putString("type", "pong");
+				});
+				break;
+			case "pong":
+				SpeedTester tester = this.clientSessionHolder.getUploader();
+				if (tester instanceof PongReceiver)
+				{
+					((PongReceiver)tester).onPongReceived(ctx.payload);
+				}
+				break;
+			default:
+				CarpetTISAdditionMod.LOGGER.warn("Received unknown ping type '{}' from server", pingType);
+		}
+	}
+
+	public void handleServerTestAbort(HandlerContext.S2C ctx)
+	{
+		this.clientSessionHolder.abortAndClear();
+	}
+
+	public void handleClientSpeedTestUploadPayload(HandlerContext.C2S ctx)
+	{
+		SpeedTester tester = this.serverSessionHolder.getFor(ctx.player);
+		if (tester instanceof SpeedTestServerUploadReceiver)
+		{
+			((SpeedTestServerUploadReceiver)tester).onC2SPayloadPacketReceived();
+		}
+	}
+
+	public void handleClientPing(HandlerContext.C2S ctx)
+	{
+		String pingType = NbtUtils.getStringOrEmpty(ctx.payload, "type");
+		switch (pingType)
+		{
+			case "ping":
+				TISCMServerPacketHandler.getInstance().sendPacket(ctx.networkHandler, TISCMProtocol.S2C.SPEED_TEST_PING, nbt -> {
+					nbt.merge(ctx.payload);
+					nbt.putString("type", "pong");
+				});
+				break;
+			case "pong":
+				SpeedTester tester = this.serverSessionHolder.getFor(ctx.player);
+				if (tester instanceof PongReceiver)
+				{
+					((PongReceiver)tester).onPongReceived(ctx.payload);
+				}
+				break;
+			default:
+				CarpetTISAdditionMod.LOGGER.warn("Received unknown ping type '{}' from client", pingType);
+		}
+	}
+}

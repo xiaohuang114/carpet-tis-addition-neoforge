@@ -1,0 +1,150 @@
+/*
+ * This file is part of the Carpet TIS Addition project, licensed under the
+ * GNU Lesser General Public License v3.0
+ *
+ * Copyright (C) 2023  Fallen_Breath and contributors
+ *
+ * Carpet TIS Addition is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * Carpet TIS Addition is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with Carpet TIS Addition.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+package carpettisaddition.network;
+
+import carpettisaddition.CarpetTISAdditionMod;
+import carpettisaddition.utils.IdentifierUtils;
+import carpettisaddition.utils.NetworkUtils;
+import com.google.common.collect.Maps;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.protocol.common.ServerboundCustomPayloadPacket;
+import net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.network.FriendlyByteBuf;
+
+import java.util.Map;
+import java.util.Optional;
+import java.util.function.BiFunction;
+import java.util.function.Consumer;
+import java.util.function.Function;
+
+public class TISCMProtocol
+{
+	public static final String ID = "tiscm";
+	public static final ResourceLocation CHANNEL = IdentifierUtils.of(ID, "network/v1");
+
+	public static String getPlatformName()
+	{
+		return CarpetTISAdditionMod.MOD_NAME;
+	}
+
+	public static String getPlatformVersion()
+	{
+		return CarpetTISAdditionMod.getVersion();
+	}
+
+	public enum C2S implements PacketId
+	{
+		HI(true),
+		SUPPORTED_S2C_PACKETS(true),
+
+		// speedtest command
+		SPEED_TEST_UPLOAD_PAYLOAD,
+		SPEED_TEST_PING,
+		;
+
+		public static final Map<String, C2S> ID_MAP = createIdMap(values());
+		public final boolean isHandshake;
+
+		C2S(boolean isHandshake)
+		{
+			this.isHandshake = isHandshake;
+		}
+
+		C2S() { this(false); }
+
+		public static Optional<C2S> fromId(String id)
+		{
+			return Optional.ofNullable(ID_MAP.get(id));
+		}
+
+		public ServerboundCustomPayloadPacket packet(Consumer<CompoundTag> payloadBuilder)
+		{
+			return makePacket(ServerboundCustomPayloadPacket::new, this, payloadBuilder);
+		}
+
+		public boolean isSupported()
+		{
+			return TISCMClientPacketHandler.getInstance().doesServerSupport(this);
+		}
+	}
+
+	public enum S2C implements PacketId
+	{
+		HELLO(true),
+		SUPPORTED_C2S_PACKETS(true),
+
+		MSPT_METRICS_SAMPLE,  // syncServerMsptMetricsData
+
+		// speedtest command
+		SPEED_TEST_DOWNLOAD_PAYLOAD,
+		SPEED_TEST_UPLOAD_REQUEST,
+		SPEED_TEST_PING,
+		SPEED_TEST_ABORT,
+		;
+
+		public static final Map<String, S2C> ID_MAP = createIdMap(values());
+		public final boolean isHandshake;
+
+		S2C(boolean isHandshake)
+		{
+			this.isHandshake = isHandshake;
+		}
+
+		S2C() { this(false); }
+
+		public static Optional<S2C> fromId(String id)
+		{
+			return Optional.ofNullable(ID_MAP.get(id));
+		}
+
+		public ClientboundCustomPayloadPacket packet(Consumer<CompoundTag> payloadBuilder)
+		{
+			return makePacket(ClientboundCustomPayloadPacket::new, this, payloadBuilder);
+		}
+	}
+
+	public interface PacketId
+	{
+		String name();  // implemented in enum
+		default String getId() { return this.name().toLowerCase(); }
+	}
+
+	private static <T> T makePacket(
+			Function<TISCMCustomPayload, T> packetConstructor,
+			PacketId packetId, Consumer<CompoundTag> payloadBuilder
+	)
+	{
+		CompoundTag nbt = new CompoundTag();
+		payloadBuilder.accept(nbt);
+		return packetConstructor.apply(new TISCMCustomPayload(packetId.getId(), nbt));
+	}
+
+	private static <T extends PacketId> Map<String, T> createIdMap(T[] values)
+	{
+		Map<String, T> idMap = Maps.newLinkedHashMap();
+		for (T value : values)
+		{
+			idMap.put(value.getId(), value);
+		}
+		return idMap;
+	}
+}

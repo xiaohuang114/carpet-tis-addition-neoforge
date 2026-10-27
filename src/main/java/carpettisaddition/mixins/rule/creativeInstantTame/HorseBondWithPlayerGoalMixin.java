@@ -1,0 +1,84 @@
+/*
+ * This file is part of the Carpet TIS Addition project, licensed under the
+ * GNU Lesser General Public License v3.0
+ *
+ * Copyright (C) 2023  Fallen_Breath and contributors
+ *
+ * Carpet TIS Addition is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * Carpet TIS Addition is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with Carpet TIS Addition.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+package carpettisaddition.mixins.rule.creativeInstantTame;
+
+import carpettisaddition.CarpetTISAdditionSettings;
+import carpettisaddition.utils.EntityUtils;
+import com.llamalad7.mixinextras.injector.ModifyExpressionValue;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.ai.goal.RunAroundLikeCrazyGoal;
+import net.minecraft.world.entity.animal.horse.AbstractHorse;
+import org.jetbrains.annotations.Nullable;
+import org.spongepowered.asm.mixin.Final;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
+import org.spongepowered.asm.mixin.injection.At;
+
+import java.util.List;
+
+@Mixin(RunAroundLikeCrazyGoal.class)
+public abstract class HorseBondWithPlayerGoalMixin
+{
+	@Shadow @Final private AbstractHorse horse;
+
+	@Unique
+	@Nullable
+	private Entity getCurrentPassenger()
+	{
+		List<Entity> passengers = this.horse.getPassengers();
+		return passengers.isEmpty() ? null : passengers.get(0);
+	}
+
+	@ModifyExpressionValue(
+			method = "tick",
+			at = @At(
+					value = "INVOKE",
+					target = "Lnet/minecraft/util/RandomSource;nextInt(I)I",
+					ordinal = 0
+			)
+	)
+	private int creativeInstantTame_horseLike_instantTame(int value)
+	{
+		if (CarpetTISAdditionSettings.creativeInstantTame && EntityUtils.isCreativePlayer(this.getCurrentPassenger()))
+		{
+			value = 0;
+		}
+		return value;
+	}
+
+	@ModifyExpressionValue(
+			method = "tick",
+			at = @At(
+					value = "INVOKE",
+					target = "Lnet/minecraft/util/RandomSource;nextInt(I)I",
+					ordinal = 1
+			)
+	)
+	private int creativeInstantTame_horseLike_alwaysTame(int value)
+	{
+		if (CarpetTISAdditionSettings.creativeInstantTame && EntityUtils.isCreativePlayer(this.getCurrentPassenger()))
+		{
+			value = -1;
+		}
+		return value;
+	}
+}

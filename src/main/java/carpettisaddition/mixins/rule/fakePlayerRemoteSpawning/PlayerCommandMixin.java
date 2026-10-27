@@ -1,0 +1,79 @@
+/*
+ * This file is part of the Carpet TIS Addition project, licensed under the
+ * GNU Lesser General Public License v3.0
+ *
+ * Copyright (C) 2023  Fallen_Breath and contributors
+ *
+ * Carpet TIS Addition is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * Carpet TIS Addition is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with Carpet TIS Addition.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+package carpettisaddition.mixins.rule.fakePlayerRemoteSpawning;
+
+import carpet.commands.PlayerCommand;
+import carpet.utils.Messenger;
+import carpettisaddition.CarpetTISAdditionSettings;
+import carpettisaddition.utils.CarpetModUtil;
+import carpettisaddition.utils.CommandUtils;
+import carpettisaddition.utils.compat.DimensionWrapper;
+import com.llamalad7.mixinextras.sugar.Local;
+import com.mojang.brigadier.context.CommandContext;
+import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.world.phys.Vec3;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.world.level.Level;
+
+@Mixin(PlayerCommand.class)
+public abstract class PlayerCommandMixin
+{
+	@Inject(
+			method = "spawn",
+			at = @At(
+					value = "INVOKE",
+					target = "Lcarpet/patches/EntityPlayerMPFake;createFake(Ljava/lang/String;Lnet/minecraft/server/MinecraftServer;Lnet/minecraft/world/phys/Vec3;DDLnet/minecraft/resources/ResourceKey;Lnet/minecraft/world/level/GameType;Z)Z"
+			),
+			cancellable = true
+	)
+	private static void fakePlayerRemoteSpawning_permissionCheck(
+			CommandContext<CommandSourceStack> context, CallbackInfoReturnable<Integer> cir,
+			@Local(ordinal = 0) CommandSourceStack source,
+			@Local(ordinal = 0) Vec3 botPos,
+			@Local(ordinal = 0) ResourceKey<Level> dim
+	)
+	{
+		if (CarpetModUtil.hasEnoughPermission(source, CarpetTISAdditionSettings.fakePlayerRemoteSpawning))
+		{
+			return;
+		}
+
+		final int MAX_ALLOWED_REMOTE_RANGE = 16;
+		boolean allowRemoteSpawn = CommandUtils.canCheat(source) || CommandUtils.isCreativePlayer(source);
+		if (!allowRemoteSpawn)
+		{
+			Vec3 sourcePos = source.getPosition();
+			DimensionWrapper sourceDimension = DimensionWrapper.of(source.getLevel());
+			DimensionWrapper botDimension = DimensionWrapper.of(dim);
+
+			// only allow remote bot spawning iff. the bot pos is closed enough to the player
+			if (!sourceDimension.equals(botDimension) || botPos.distanceTo(sourcePos) >= MAX_ALLOWED_REMOTE_RANGE)
+			{
+				Messenger.m(source, "rb Remote player spawning is not allowed");
+				cir.setReturnValue(0);
+			}
+		}
+	}
+}

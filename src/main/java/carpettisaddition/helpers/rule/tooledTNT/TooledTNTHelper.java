@@ -1,0 +1,56 @@
+/*
+ * This file is part of the Carpet TIS Addition project, licensed under the
+ * GNU Lesser General Public License v3.0
+ *
+ * Copyright (C) 2023  Fallen_Breath and contributors
+ *
+ * Carpet TIS Addition is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * Carpet TIS Addition is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with Carpet TIS Addition.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+package carpettisaddition.helpers.rule.tooledTNT;
+
+import carpettisaddition.CarpetTISAdditionSettings;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.Explosion;
+
+import java.util.Optional;
+
+public class TooledTNTHelper
+{
+	/**
+	 * Attach the causing entity's main hand item onto the loot table builder
+	 *
+	 * See also {@link net.minecraft.world.level.block.Block#getDrops(BlockState, ServerLevel, BlockPos, BlockEntity, Entity, ItemStack)}
+	 * for loot table building for regular entity block mining
+	 */
+	public static Optional<ItemStack> getMainHandItemOfCausingEntity(Explosion explosion)
+	{
+		if (CarpetTISAdditionSettings.tooledTNT)
+		{
+			LivingEntity causingEntity = explosion.getIndirectSourceEntity();
+			if (causingEntity != null)
+			{
+				return Optional.of(causingEntity.getMainHandItem());
+			}
+		}
+		// vanilla
+		return Optional.empty();
+	}
+}

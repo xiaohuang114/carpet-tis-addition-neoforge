@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- TIS-S3 survey only: raise root log level to DEBUG so that
+     CarpetTISAdditionMixinPlugin#onRestrictionCheckFailed ("[TISCM] Disabled mixin X due to Y")
+     is visible and every @Restriction skip (P-c) can be listed with its reason.
+     Passed with -Dlog4j2.configurationFile=<this file> (log4j 2.x property name, NOT the 1.x
+     "log4j.configurationFile" - the 1.x key is ignored and left the log silent).
+     Never shipped; delete with tis-mixin-survey.json at S3 step 4. -->
+<Configuration status="WARN">
+  <Appenders>
+    <Console name="Console" target="SYSTEM_OUT">
+      <PatternLayout pattern="[%d{HH:mm:ss}] [%t/%level] [%c{1}/]: %msg%n"/>
+    </Console>
+  </Appenders>
+  <Loggers>
+    <Logger name="carpettisaddition" level="debug" additivity="false">
+      <AppenderRef ref="Console"/>
+    </Logger>
+    <Logger name="me.fallenbreath.conditionalmixin" level="debug" additivity="false">
+      <AppenderRef ref="Console"/>
+    </Logger>
+    <Root level="info">
+      <AppenderRef ref="Console"/>
+    </Root>
+  </Loggers>
+</Configuration>

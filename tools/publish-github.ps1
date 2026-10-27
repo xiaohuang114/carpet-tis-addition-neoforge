@@ -1,0 +1,100 @@
+param(
+    [string]$Token = $env:GITHUB_TOKEN,
+    [string]$Owner = $env:GITHUB_OWNER,
+    [string]$Repo  = 'carpet-tis-addition-neoforge',
+    [string]$Tag   = 'v1.82.0+neoforge.1.21.1',
+    [switch]$SkipRelease
+)
+# Create the GitHub repo (if needed), push the local commit, then publish a release
+# with the packaged assets. Requires a PAT in $env:GITHUB_TOKEN (repo scope) and
+# the account name in $env:GITHUB_OWNER. ASCII only (PS 5.1 reads .ps1 as ANSI).
+
+$ErrorActionPreference = 'Stop'
+$root = Split-Path -Parent $PSScriptRoot
+Set-Location $root
+
+if ([string]::IsNullOrWhiteSpace($Token)) {
+    Write-Host '[publish] GITHUB_TOKEN is empty.' -ForegroundColor Yellow
+    Write-Host '   $env:GITHUB_TOKEN = "ghp_xxxxxxxxxxxxxxxx"; $env:GITHUB_OWNER = "your-login"' -ForegroundColor Yellow
+    Write-Host '   tools\publish-github.ps1' -ForegroundColor Yellow
+    exit 2
+}
+if ([string]::IsNullOrWhiteSpace($Owner)) {
+    $me = Invoke-RestMethod -Uri 'https://api.github.com/user' -Headers @{ Authorization = "token $Token"; 'User-Agent' = 'tis-neoforge-publisher' }
+    $Owner = $me.login
+    Write-Host "[publish] owner resolved from token: $Owner" -ForegroundColor Cyan
+}
+
+$headers = @{ Authorization = "token $Token"; 'User-Agent' = 'tis-neoforge-publisher'; Accept = 'application/vnd.github+json' }
+
+# --- 1. repo
+$repoExists = $true
+try {
+    Invoke-RestMethod -Uri "https://api.github.com/repos/$Owner/$Repo" -Headers $headers | Out-Null
+} catch {
+    $repoExists = $false
+}
+if (-not $repoExists) {
+    $payload = @{
+        name        = $Repo
+        description = 'Carpet TIS Addition 1.82.0 NeoForge 1.21.1 port (unofficial)'
+        private     = $false
+        has_issues  = $true
+        has_wiki    = $false
+    } | ConvertTo-Json
+    Invoke-RestMethod -Method POST -Uri 'https://api.github.com/user/repos' -Headers $headers -Body $payload -ContentType 'application/json' | Out-Null
+    Write-Host "[publish] created repo $Owner/$Repo" -ForegroundColor Green
+} else {
+    Write-Host "[publish] repo $Owner/$Repo already exists" -ForegroundColor Cyan
+}
+
+# --- 2. push
+$remoteUrl = "https://x-access-token:$Token@github.com/$Owner/$Repo.git"
+$current = (& git remote get-url origin 2>$null)
+if ($LASTEXITCODE -ne 0 -or -not $current) {
+    & git remote add origin $remoteUrl
+} else {
+    & git remote set-url origin $remoteUrl
+}
+& git branch -M main
+& git push -u origin main
+if ($LASTEXITCODE -ne 0) { throw 'git push failed' }
+Write-Host '[publish] pushed main' -ForegroundColor Green
+
+if ($SkipRelease) { exit 0 }
+
+# --- 3. release + assets
+$notes = Join-Path $root 'dist\publish\github-release.md'
+$releaseBody = if (Test-Path $notes) { Get-Content $notes -Raw } else { 'See RELEASE-NOTES.md.' }
+$rel = @{ tag_name = $Tag; name = "1.82.0+neoforge.1.21.1"; body = $releaseBody; draft = $false; prerelease = $false }
+
+$existingRelease = $null
+try { $existingRelease = Invoke-RestMethod -Uri "https://api.github.com/repos/$Owner/$Repo/releases/tags/$Tag" -Headers $headers } catch { }
+if (-not $existingRelease) {
+    $existingRelease = Invoke-RestMethod -Method POST -Uri "https://api.github.com/repos/$Owner/$Repo/releases" `
+        -Headers $headers -Body ($rel | ConvertTo-Json -Depth 6) -ContentType 'application/json'
+    Write-Host "[publish] release created: $($existingRelease.html_url)" -ForegroundColor Green
+} else {
+    Write-Host "[publish] release exists: $($existingRelease.html_url)" -ForegroundColor Cyan
+}
+
+$assets = @(
+    (Join-Path $root 'dist\TIS-Addition-NeoForge-1.21.1-single-jar.zip'),
+    (Join-Path $root 'dist\TIS-Addition-NeoForge-1.21.1.zip'),
+    (Join-Path $root '_s9_payload\TIS-single-jarjar.jar')
+)
+$uploadTemplate = $existingRelease.upload_url -replace '\{\?name,label\}', ''
+foreach ($a in $assets) {
+    if (-not (Test-Path $a)) { Write-Host "[publish] skip missing asset $a" -ForegroundColor Yellow; continue }
+    $name = Split-Path $a -Leaf
+    $uri = "$uploadTemplate?name=$([uri]::EscapeDataString($name))"
+    try {
+        Invoke-RestMethod -Method POST -Uri $uri -Headers $headers -ContentType 'application/octet-stream' -InFile $a | Out-Null
+        Write-Host "[publish] uploaded asset $name" -ForegroundColor Green
+    } catch {
+        Write-Host "[publish] asset upload failed for ${name}: $($_.Exception.Message)" -ForegroundColor Yellow
+    }
+}
+
+Write-Host "[publish] repo:    https://github.com/$Owner/$Repo" -ForegroundColor Green
+Write-Host "[publish] release: $($existingRelease.html_url)" -ForegroundColor Green

@@ -1,0 +1,29 @@
+# ---- Gradle / build output ----
+.gradle/
+build/
+out/
+!gradle/wrapper/gradle-wrapper.jar
+
+# ---- dev run dirs ----
+run/
+runs/
+
+# ---- local verification harness (not part of the mod) ----
+_s8_srv/
+_s9_payload/
+_s9_logs/
+_tmp/
+_s*.log
+_*.log
+_*.csv
+*.log
+
+# ---- packaged artifacts (published as GitHub Release assets instead) ----
+dist/
+
+# ---- IDE / OS ----
+.idea/
+*.iml
+.vscode/
+Thumbs.db
+desktop.ini

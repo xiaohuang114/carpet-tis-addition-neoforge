@@ -1,0 +1,61 @@
+/*
+ * This file is part of the Carpet TIS Addition project, licensed under the
+ * GNU Lesser General Public License v3.0
+ *
+ * Copyright (C) 2023  Fallen_Breath and contributors
+ *
+ * Carpet TIS Addition is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * Carpet TIS Addition is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with Carpet TIS Addition.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+package carpettisaddition.mixins.command.lifetime.spawning.blockdrop;
+
+import carpettisaddition.commands.lifetime.interfaces.LifetimeTrackerTarget;
+import carpettisaddition.commands.lifetime.spawning.LiteralSpawningReason;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.entity.Entity;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.ModifyArg;
+import carpettisaddition.commands.lifetime.LifeTimeTracker;
+import carpettisaddition.commands.lifetime.utils.LifetimeMixinUtil;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+
+@Mixin(Block.class)
+public abstract class BlockMixin
+{
+	@ModifyArg(
+			method = "popResource(Lnet/minecraft/world/level/Level;Ljava/util/function/Supplier;Lnet/minecraft/world/item/ItemStack;)V",
+			at = @At(
+					value = "INVOKE",
+					target = "Lnet/minecraft/world/level/Level;addFreshEntity(Lnet/minecraft/world/entity/Entity;)Z"
+			)
+	)
+	private static Entity lifetimeTracker_recordSpawning_blockDrop_commonItem(Entity itemEntity)
+	{
+		((LifetimeTrackerTarget)itemEntity).recordSpawning$TISCM(LiteralSpawningReason.BLOCK_DROP);
+		return itemEntity;
+	}
+	@Inject(method = "popExperience", at = @At("HEAD"))
+	private void lifetimeTracker_recordSpawning_blockDrop_commonXpOrbStart(CallbackInfo ci)
+	{
+		if (LifeTimeTracker.isActivated()) LifetimeMixinUtil.xpOrbSpawningReason.set(LiteralSpawningReason.BLOCK_DROP);
+	}
+
+	@Inject(method = "popExperience", at = @At("TAIL"))
+	private void lifetimeTracker_recordSpawning_blockDrop_commonXpOrbEnd(CallbackInfo ci)
+	{
+		if (LifeTimeTracker.isActivated()) LifetimeMixinUtil.xpOrbSpawningReason.remove();
+	}
+}

@@ -1,0 +1,167 @@
+/*
+ * This file is part of the Carpet TIS Addition project, licensed under the
+ * GNU Lesser General Public License v3.0
+ *
+ * Copyright (C) 2023  Fallen_Breath and contributors
+ *
+ * Carpet TIS Addition is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * Carpet TIS Addition is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with Carpet TIS Addition.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+package carpettisaddition.logging.loggers.microtiming.events;
+
+import carpettisaddition.logging.loggers.microtiming.enums.EventType;
+import carpettisaddition.logging.loggers.microtiming.enums.PistonBlockEventType;
+import carpettisaddition.logging.loggers.microtiming.utils.MicroTimingUtil;
+import carpettisaddition.utils.Messenger;
+import com.google.common.collect.Lists;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.piston.PistonBaseBlock;
+import net.minecraft.world.level.BlockEventData;
+import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.core.Direction;
+
+import java.util.List;
+import java.util.Objects;
+
+public class ExecuteBlockEventEvent extends BaseEvent
+{
+	private final BlockEventData blockAction;
+	private Boolean returnValue;
+	private FailInfo failInfo;
+
+	public ExecuteBlockEventEvent(EventType eventType, BlockEventData blockAction, Boolean returnValue, FailInfo failInfo)
+	{
+		super(eventType, "execute_block_event", blockAction.block());
+		this.blockAction = blockAction;
+		this.returnValue = returnValue;
+		this.failInfo = failInfo;
+		if (this.failInfo != null)
+		{
+			this.failInfo.setEvent(this);
+		}
+	}
+
+	public static MutableComponent getMessageExtraMessengerHoverText(BlockEventData blockAction)
+	{
+		int eventID = blockAction.paramA();
+		int eventParam = blockAction.paramB();
+		List<Object> builder = Lists.newArrayList();
+		builder.add(String.format("w eventID: %d", eventID));
+		if (blockAction.block() instanceof PistonBaseBlock)
+		{
+			builder.add(Messenger.c(Messenger.s(" ("), PistonBlockEventType.fromId(eventID).toText(), Messenger.s(")")));
+		}
+		builder.add(Messenger.newLine());
+		builder.add(String.format("w eventParam: %d", eventParam));
+		if (blockAction.block() instanceof PistonBaseBlock)
+		{
+			builder.add("w  (");
+			builder.add(MicroTimingUtil.getFormattedDirectionText(Direction.from3DDataValue(eventParam)));
+			builder.add("w )");
+		}
+		return Messenger.c(builder.toArray(new Object[0]));
+	}
+
+	public MutableComponent toText()
+	{
+		List<Object> list = Lists.newArrayList();
+		list.add(Messenger.formatting(tr("execute"), COLOR_ACTION));
+		list.add(Messenger.getSpaceText());
+		MutableComponent eventName = this.blockAction.block() instanceof PistonBaseBlock ?
+				Messenger.formatting(PistonBlockEventType.fromId(blockAction.paramA()).toText(), COLOR_TARGET) :
+				Messenger.formatting(tr("blockevent"), COLOR_TARGET);
+		list.add(Messenger.fancy(eventName, getMessageExtraMessengerHoverText(this.blockAction), null));
+		if (this.getEventType() == EventType.ACTION_END)
+		{
+			list.add(Messenger.getSpaceText());
+			list.add(Messenger.formatting(tr("ended"), COLOR_RESULT));
+		}
+		if (this.returnValue != null)
+		{
+			list.add("w  ");
+			list.add(MicroTimingUtil.getSuccessText(this.returnValue, true, this.failInfo != null && !this.returnValue ? this.failInfo.toText() : null));
+		}
+		return Messenger.c(list.toArray(new Object[0]));
+	}
+
+	@Override
+	public boolean equals(Object o)
+	{
+		if (this == o) return true;
+		if (!(o instanceof ExecuteBlockEventEvent)) return false;
+		if (!super.equals(o)) return false;
+		ExecuteBlockEventEvent that = (ExecuteBlockEventEvent) o;
+		return Objects.equals(blockAction, that.blockAction) &&
+				Objects.equals(returnValue, that.returnValue);
+	}
+
+	@Override
+	public int hashCode()
+	{
+		return Objects.hash(super.hashCode(), blockAction, returnValue);
+	}
+
+	@Override
+	public void mergeQuitEvent(BaseEvent quitEvent)
+	{
+		super.mergeQuitEvent(quitEvent);
+		if (quitEvent instanceof ExecuteBlockEventEvent)
+		{
+			this.returnValue = ((ExecuteBlockEventEvent)quitEvent).returnValue;
+			this.failInfo = ((ExecuteBlockEventEvent)quitEvent).failInfo;
+		}
+	}
+
+	public static class FailInfo
+	{
+		private final FailReason reason;
+		private final Block actualBlock;
+		private ExecuteBlockEventEvent event;
+
+		public FailInfo(FailReason reason, Block block)
+		{
+			this.reason = reason;
+			this.actualBlock = block;  // for custom BLOCK_CHANGED reason
+		}
+
+		public void setEvent(ExecuteBlockEventEvent event)
+		{
+			this.event = event;
+		}
+
+		public MutableComponent toText()
+		{
+			switch (this.reason)
+			{
+				case BLOCK_CHANGED:
+					return Messenger.c(
+							this.event.tr("fail_info.block_changed"),
+							"w : ",
+							Messenger.block(this.event.blockAction.block()),
+							"g  -> ",
+							Messenger.block(this.actualBlock)
+					);
+				case EVENT_FAIL:
+				default:
+					return this.event.tr("fail_info.event_fail");
+			}
+		}
+	}
+
+	public enum FailReason
+	{
+		BLOCK_CHANGED,
+		EVENT_FAIL
+	}
+}

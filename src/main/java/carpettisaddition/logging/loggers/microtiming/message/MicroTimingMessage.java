@@ -1,0 +1,205 @@
+/*
+ * This file is part of the Carpet TIS Addition project, licensed under the
+ * GNU Lesser General Public License v3.0
+ *
+ * Copyright (C) 2023  Fallen_Breath and contributors
+ *
+ * Carpet TIS Addition is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * Carpet TIS Addition is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with Carpet TIS Addition.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+package carpettisaddition.logging.loggers.microtiming.message;
+
+import carpettisaddition.logging.loggers.microtiming.MicroTimingLogger;
+import carpettisaddition.logging.loggers.microtiming.MicroTimingLoggerManager;
+import carpettisaddition.logging.loggers.microtiming.enums.EventType;
+import carpettisaddition.logging.loggers.microtiming.events.BaseEvent;
+import carpettisaddition.logging.loggers.microtiming.events.EventSource;
+import carpettisaddition.logging.loggers.microtiming.tickphase.TickPhase;
+import carpettisaddition.logging.loggers.microtiming.utils.MicroTimingContext;
+import carpettisaddition.logging.loggers.microtiming.utils.MicroTimingUtil;
+import carpettisaddition.utils.Messenger;
+import carpettisaddition.utils.TextUtils;
+import carpettisaddition.utils.compat.DimensionWrapper;
+import carpettisaddition.utils.deobfuscator.StackTracePrinter;
+import com.google.common.collect.Lists;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.material.Fluid;
+import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.world.item.DyeColor;
+import net.minecraft.core.BlockPos;
+
+import java.util.List;
+import java.util.Objects;
+
+import static java.lang.Integer.min;
+
+public class MicroTimingMessage
+{
+	private static final int MAX_INDENT = 10;
+	private static final int SPACE_PER_INDENT = 2;
+	private static final List<String> INDENTATIONS = Lists.newArrayList();
+	static
+	{
+		String indent = "";
+		for (int i = 0; i <= MAX_INDENT; i++)
+		{
+			INDENTATIONS.add(indent);
+			for (int j = 0; j < SPACE_PER_INDENT; j++)
+			{
+				indent += ' ';
+			}
+		}
+	}
+
+	private final DimensionWrapper dimensionType;
+	private final BlockPos pos;
+	private final DyeColor color;
+	private final TickPhase tickPhase;
+	private final MutableComponent stackTraceText;
+	private final BaseEvent event;
+	private final String blockName;
+
+	public MicroTimingMessage(MicroTimingLogger logger, MicroTimingContext context)
+	{
+		this.dimensionType = DimensionWrapper.of(context.getWorld());
+		this.pos = context.getBlockPos();
+		this.color = context.getColor();
+		this.event = context.getEventSupplier().get();
+		this.blockName = context.getBlockName();
+		this.tickPhase = logger.getTickPhase();
+		this.stackTraceText = StackTracePrinter.makeSymbol(MicroTimingLoggerManager.class);
+	}
+
+	private static MutableComponent tr(String key, Object... args)
+	{
+		return MicroTimingLoggerManager.TRANSLATOR.tr(key, args);
+	}
+
+	public MessageType getMessageType()
+	{
+		return MessageType.fromEventType(this.event.getEventType());
+	}
+
+	public BaseEvent getEvent()
+	{
+		return this.event;
+	}
+
+	@Override
+	public boolean equals(Object o)
+	{
+		if (this == o) return true;
+		if (!(o instanceof MicroTimingMessage)) return false;
+		MicroTimingMessage message = (MicroTimingMessage) o;
+		return Objects.equals(dimensionType, message.dimensionType) &&
+				Objects.equals(pos, message.pos) &&
+				color == message.color &&
+				Objects.equals(tickPhase, message.tickPhase) &&
+				Objects.equals(event, message.event);
+	}
+
+	@Override
+	public int hashCode()
+	{
+		return Objects.hash(dimensionType, pos, color, tickPhase, event);
+	}
+
+	private MutableComponent getHashTagText(int indentation)
+	{
+		return Messenger.fancy(
+				MicroTimingUtil.getColorStyle(this.color),
+				Messenger.s("# "),
+				Messenger.c(
+						tr("common.position"), Messenger.s(": "), Messenger.coord(this.pos), Messenger.newLine(),
+						tr("common.color"), Messenger.s(": "), Messenger.s(this.color.toString()), Messenger.newLine(),
+						tr("common.indentation"), Messenger.s(": "), Messenger.s(String.valueOf(indentation))
+				),
+				Messenger.ClickEvents.suggestCommand(TextUtils.tp(this.pos, this.dimensionType))
+		);
+	}
+
+	public static MutableComponent getIndentationText(int indentation)
+	{
+		return Messenger.s(INDENTATIONS.get(min(indentation, MAX_INDENT)));
+	}
+
+	// [Stone]
+	private MutableComponent getEnclosedTranslatedBlockNameHeaderText()
+	{
+		EventSource eventSource = this.event.getEventSource();
+		MutableComponent type = Messenger.s("unknown");
+		if (eventSource.getSourceObject() instanceof Block)
+		{
+			type = tr("common.block");
+		}
+		else if (eventSource.getSourceObject() instanceof Fluid)
+		{
+			type = tr("common.fluid");
+		}
+		return Messenger.c(
+				"g [",
+				Messenger.fancy(
+						null,
+						this.blockName != null ? Messenger.s(this.blockName) : eventSource.getName(),
+						Messenger.c(
+								tr("common.event_source"), "w : ",
+								eventSource.getName(),
+								"w  (", type, "w )\n",
+								tr("common.id"), String.format("w : %s", eventSource.getId())
+						),
+						null
+				),
+				"g ] "
+		);
+	}
+
+	// # [block] something happens (@ phase) $
+	public MutableComponent toText(int indentation, boolean showStage)
+	{
+		List<Object> line = Lists.newArrayList();
+		if (indentation > 0)
+		{
+			line.add(getIndentationText(indentation));
+		}
+		line.add(this.getHashTagText(indentation));
+		line.add(this.getEnclosedTranslatedBlockNameHeaderText());
+		line.add(this.event.toText());
+		if (this.event.getEventType() != EventType.ACTION_END)
+		{
+			if (showStage)
+			{
+				line.add(Messenger.c("g  @ ", this.tickPhase.toText("y")));
+			}
+		}
+		line.add("w  ");
+		line.add(this.stackTraceText);
+		return Messenger.c(line.toArray(new Object[0]));
+	}
+
+	/**
+	 * Merge the closing bracket event into current event, for cleaner view
+	 *
+	 * this (opening bracket)
+	 *   sub message A
+	 *     sub-sub message B
+	 * quitMessage (closing bracket)
+	 */
+	public void mergeQuitMessage(MicroTimingMessage quitMessage)
+	{
+		if (quitMessage != null)
+		{
+			this.event.mergeQuitEvent(quitMessage.event);
+		}
+	}
+}

@@ -1,0 +1,61 @@
+/*
+ * This file is part of the Carpet TIS Addition project, licensed under the
+ * GNU Lesser General Public License v3.0
+ *
+ * Copyright (C) 2023  Fallen_Breath and contributors
+ *
+ * Carpet TIS Addition is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * Carpet TIS Addition is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with Carpet TIS Addition.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+package carpettisaddition.logging.loggers.lifetime;
+import carpet.logging.HUDLogger;
+
+import carpettisaddition.commands.lifetime.LifeTimeTracker;
+import carpettisaddition.commands.lifetime.utils.LifeTimeTrackerUtil;
+import carpettisaddition.logging.TISAdditionLoggerRegistry;
+import carpettisaddition.utils.CommandUtils;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.server.level.ServerPlayer;
+
+public class LifeTimeStandardCarpetHUDLogger extends
+		HUDLogger
+{
+	public LifeTimeStandardCarpetHUDLogger()
+	{
+		super(
+				TISAdditionLoggerRegistry.getLoggerField(LifeTimeHUDLogger.NAME), LifeTimeHUDLogger.NAME, null, null
+				, false
+		);
+	}
+
+	@Override
+	public void addPlayer(String playerName, String option)
+	{
+		super.addPlayer(playerName, option);
+		ServerPlayer player = this.playerFromName(playerName);
+		if (player instanceof ServerPlayer)
+		{
+			if (!LifeTimeTrackerUtil.getEntityTypeFromName(option).isPresent())
+			{
+				LifeTimeTracker.getInstance().sendUnknownEntity(CommandUtils.getPlayerCommandSource(player), option);
+			}
+		}
+	}
+
+	@Override
+	public String[] getOptions()
+	{
+		return LifeTimeTracker.getInstance().getAvailableEntityType().toArray(String[]::new);
+	}
+}

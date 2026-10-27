@@ -1,0 +1,77 @@
+/*
+ * This file is part of the Carpet TIS Addition project, licensed under the
+ * GNU Lesser General Public License v3.0
+ *
+ * Copyright (C) 2023  Fallen_Breath and contributors
+ *
+ * Carpet TIS Addition is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * Carpet TIS Addition is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with Carpet TIS Addition.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+package carpettisaddition.mixins.rule.failSoftBlockStateParsing;
+
+import carpettisaddition.CarpetTISAdditionSettings;
+import carpettisaddition.helpers.rule.failSoftBlockStateParsing.DummyPropertyEnum;
+import carpettisaddition.utils.GameUtils;
+import com.llamalad7.mixinextras.injector.ModifyExpressionValue;
+import net.minecraft.commands.arguments.blocks.BlockStateParser;
+import net.minecraft.world.level.block.state.properties.Property;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+
+@Mixin(BlockStateParser.class)
+public abstract class BlockArgumentParserMixin
+{
+	@Inject(
+			method = "setValue",
+			at = @At(
+					value = "INVOKE",
+					target = "Lcom/mojang/brigadier/StringReader;setCursor(I)V",
+					remap = false
+			),
+			cancellable = true
+	)
+	private void failSoftBlockStateParsing(CallbackInfo ci)
+	{
+		if (CarpetTISAdditionSettings.failSoftBlockStateParsing && !GameUtils.isOnClientThread())
+		{
+			ci.cancel();
+		}
+	}
+
+	/**
+	 * Replace the property field with our DUMMY_PROPERTY so the following parsing is able to continue.
+	 * The call of {@link BlockStateParser#setValue} which will be suppressed in the @Inject above,
+	 * so the DUMMY_PROPERTY won't be actually used
+	 */
+	@ModifyExpressionValue(
+			method = "readProperties",
+			at = @At(
+					value = "INVOKE",
+					target = "Lnet/minecraft/world/level/block/state/StateDefinition;getProperty(Ljava/lang/String;)Lnet/minecraft/world/level/block/state/properties/Property;"
+			)
+	)
+	private Property<?> failSoftBlockStateParsing_replaceFailedProperty(Property<?> value)
+	{
+		if (CarpetTISAdditionSettings.failSoftBlockStateParsing && !GameUtils.isOnClientThread())
+		{
+			if (value == null)
+			{
+				value = DummyPropertyEnum.DUMMY_PROPERTY;
+			}
+		}
+		return value;
+	}
+}
