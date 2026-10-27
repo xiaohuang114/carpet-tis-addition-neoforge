@@ -28,3 +28,6 @@ dist/*
 .vscode/
 Thumbs.db
 desktop.ini
+
+# ---- local publish credentials (never commit) ----
+tools/.secrets/

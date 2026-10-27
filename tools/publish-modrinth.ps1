@@ -44,11 +44,17 @@ if ($DryRun) {
     Write-Host '[dry-run] no request sent; set MODRINTH_TOKEN and drop -DryRun to publish.' -ForegroundColor Green
     exit 0
 }
+$tokenFile = Join-Path $root 'tools\.secrets\modrinth.token'
+if ([string]::IsNullOrWhiteSpace($Token) -and (Test-Path $tokenFile)) {
+    $Token = ((Get-Content $tokenFile -Raw -Encoding UTF8).Trim() -split "`r?`n")[0].Trim()
+    if ($Token) { Write-Host "[publish] token loaded from $tokenFile" -ForegroundColor Cyan }
+}
 if ([string]::IsNullOrWhiteSpace($Token)) {
     Write-Host '[publish] MODRINTH_TOKEN is empty.' -ForegroundColor Yellow
     Write-Host '[publish] set it for this shell, then re-run:' -ForegroundColor Yellow
     Write-Host '   $env:MODRINTH_TOKEN = "mrp_xxxxxxxxxxxxxxxx"' -ForegroundColor Yellow
     Write-Host '   tools\publish-modrinth.ps1' -ForegroundColor Yellow
+    Write-Host '   or: put the token in tools\.secrets\modrinth.token, then just run tools\publish-modrinth.ps1' -ForegroundColor Yellow
     exit 2
 }
 

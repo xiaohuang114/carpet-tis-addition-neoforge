@@ -39,10 +39,22 @@ if ($DryRun) {
     exit 0
 }
 
+$secDir = Join-Path $root 'tools\.secrets'
+$tokFile = Join-Path $secDir 'github.token'
+$ownFile = Join-Path $secDir 'github.owner'
+if ([string]::IsNullOrWhiteSpace($Token) -and (Test-Path $tokFile)) {
+    $Token = ((Get-Content $tokFile -Raw -Encoding UTF8).Trim() -split "`r?`n")[0].Trim()
+    if ($Token) { Write-Host "[publish] token loaded from $tokFile" -ForegroundColor Cyan }
+}
+if ([string]::IsNullOrWhiteSpace($Owner) -and (Test-Path $ownFile)) {
+    $Owner = ((Get-Content $ownFile -Raw -Encoding UTF8).Trim() -split "`r?`n")[0].Trim()
+    if ($Owner) { Write-Host "[publish] owner loaded from $ownFile" -ForegroundColor Cyan }
+}
 if ([string]::IsNullOrWhiteSpace($Token)) {
     Write-Host '[publish] GITHUB_TOKEN is empty.' -ForegroundColor Yellow
     Write-Host '   $env:GITHUB_TOKEN = "ghp_xxxxxxxxxxxxxxxx"; $env:GITHUB_OWNER = "your-login"' -ForegroundColor Yellow
     Write-Host '   tools\publish-github.ps1' -ForegroundColor Yellow
+    Write-Host '   or: put the token in tools\.secrets\github.token (+ github.owner), then just run tools\publish-github.ps1' -ForegroundColor Yellow
     exit 2
 }
 if ([string]::IsNullOrWhiteSpace($Owner)) {
