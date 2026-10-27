@@ -110,7 +110,7 @@ if (-not $id) {
 }
 
 if (-not $id) {
-    $body = Get-Content $bodyMd -Raw -Encoding UTF8
+    $body = (Get-Content $bodyMd -Raw -Encoding UTF8) -replace "^\uFEFF", ""
     $project = @{
         slug          = $Slug
         title         = $Title
@@ -166,7 +166,7 @@ $dataJson = $ver | ConvertTo-Json -Depth 12 -Compress
 
 $boundary = [guid]::NewGuid().ToString()
 $ms = New-Object IO.MemoryStream
-$w = New-Object IO.StreamWriter($ms, [Text.Encoding]::UTF8)
+        $w = New-Object IO.StreamWriter($ms, (New-Object Text.UTF8Encoding($false)))
 $w.Write("--$boundary`r`n")
 $w.Write("Content-Disposition: form-data; name=""data""`r`n`r`n")
 $w.Write($dataJson)

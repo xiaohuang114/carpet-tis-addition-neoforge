@@ -115,8 +115,10 @@ if (-not $repoExists) {
         private     = $false
         has_issues  = $true
         has_wiki    = $false
-    } | ConvertTo-Json
-    Invoke-RestMethod -Method POST -Uri 'https://api.github.com/user/repos' -Headers $headers -Body $payload -ContentType 'application/json' | Out-Null
+    }
+    $payloadJson = $payload | ConvertTo-Json -Depth 6
+    $payloadBytes = [Text.Encoding]::UTF8.GetBytes($payloadJson)
+    Invoke-RestMethod -Method POST -Uri 'https://api.github.com/user/repos' -Headers $headers -Body $payloadBytes -ContentType 'application/json; charset=utf-8' | Out-Null
     Write-Host "[publish] created repo $Owner/$Repo" -ForegroundColor Green
 } else {
     Write-Host "[publish] repo $Owner/$Repo already exists" -ForegroundColor Cyan
@@ -157,14 +159,16 @@ if ($SkipRelease) { exit 0 }
 
 # --- 3. release + assets
 $notes = Join-Path $root 'dist\publish\github-release.md'
-$releaseBody = if (Test-Path $notes) { Get-Content $notes -Raw } else { 'See RELEASE-NOTES.md.' }
+$releaseBody = if (Test-Path $notes) { (Get-Content $notes -Raw -Encoding UTF8) -replace "^\uFEFF", "" } else { 'See RELEASE-NOTES.md.' }
 $rel = @{ tag_name = $Tag; name = "1.82.0+neoforge.1.21.1"; body = $releaseBody; draft = $false; prerelease = $false }
 
 $existingRelease = $null
 try { $existingRelease = Invoke-RestMethod -Uri "https://api.github.com/repos/$Owner/$Repo/releases/tags/$Tag" -Headers $headers } catch { }
 if (-not $existingRelease) {
+    $relJson = $rel | ConvertTo-Json -Depth 6
+    $relBytes = [Text.Encoding]::UTF8.GetBytes($relJson)
     $existingRelease = Invoke-RestMethod -Method POST -Uri "https://api.github.com/repos/$Owner/$Repo/releases" `
-        -Headers $headers -Body ($rel | ConvertTo-Json -Depth 6) -ContentType 'application/json'
+        -Headers $headers -Body $relBytes -ContentType 'application/json; charset=utf-8'
     Write-Host "[publish] release created: $($existingRelease.html_url)" -ForegroundColor Green
 } else {
     Write-Host "[publish] release exists: $($existingRelease.html_url)" -ForegroundColor Cyan
@@ -175,11 +179,11 @@ $assets = @(
     (Join-Path $root 'dist\TIS-Addition-NeoForge-1.21.1.zip'),
     (Join-Path $root '_s9_payload\TIS-single-jarjar.jar')
 )
-$uploadTemplate = $existingRelease.upload_url -replace '\{\?name,label\}', ''
+$uploadTemplate = ($existingRelease.upload_url -split '\{')[0]
 foreach ($a in $assets) {
     if (-not (Test-Path $a)) { Write-Host "[publish] skip missing asset $a" -ForegroundColor Yellow; continue }
     $name = Split-Path $a -Leaf
-    $uri = "$uploadTemplate?name=$([uri]::EscapeDataString($name))"
+    $uri = "${uploadTemplate}?name=$([uri]::EscapeDataString($name))"
     try {
         Invoke-RestMethod -Method POST -Uri $uri -Headers $headers -ContentType 'application/octet-stream' -InFile $a | Out-Null
         Write-Host "[publish] uploaded asset $name" -ForegroundColor Green
