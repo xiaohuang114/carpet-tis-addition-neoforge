@@ -160,3 +160,31 @@ Modrinth 侧同样预检（`GET /v2/user`），占位符 `mrp_xxx` 会提示「o
 
 1. **`GITHUB_OWNER` 不能有空格**：你的截图里是 `"xiao huan 114"`。GitHub 用户名不允许空格，实际应该是 `xiaohuang114` 这样的连续串。填错会在 `POST /user/repos` 阶段变成 404/403。
 2. **token 别贴进聊天**：写进 `tools\.secrets\github.token`（已 gitignore）最稳妥，脚本会自动读。
+
+---
+
+## 9. 生成 GitHub token 的具体点法（截图那一页）
+
+你贴的是 <https://github.com/settings/tokens> → **Generate new token (classic)** 这一页，红字 `Note can't be blank` 就是唯一卡住你的地方。
+
+1. **Note**：随便填一个用途名，例如 `tis-neoforge-publish`（只是给你自己日后辨认）。
+2. **Expiration**：`30 days` 够用；嫌麻烦可选 `90 days`。
+3. **Select scopes**：**只勾 `repo`** 这一行（勾父项后它下面的 `repo:status` / `public_repo` 等子项会自动带上，方块变成实心打勾）。
+   * 不要勾 `workflow`、`write:packages`、`delete:packages`、`admin:org`、`admin:public_key` 等。
+4. 滚到页面**最底部**，点绿色 **Generate token**。
+5. 下一个页面顶部会出现 `ghp_` 开头的一串（**只显示这一次**，关掉就再也看不到），点右侧复制图标。
+6. 回到 PowerShell：
+
+```powershell
+cd "D:\Minecraft-mod-development\carpet-tis-neoforge移植（已收工）\TIS-NeoForge"
+tools\save-token.ps1 -Service github        # 隐藏输入粘贴 token，再输入用户名
+tools\publish-github.ps1                   # 自动建库 + push + 建 release + 传 3 个资产
+```
+
+`save-token.ps1` 会做三件事：校验长度（≥20 且有 `ghp_`/`github_pat_` 前缀）、拒绝带空格的用户名、写入被 gitignore 的 `tools\.secrets\`。
+
+Modrinth 同理：`tools\save-token.ps1 -Service modrinth` → `tools\publish-modrinth.ps1`。
+
+### 如果 token 已经生成过
+
+关掉页面就看不到原值了 —— 直接按上面第 1~6 步重新生成一个（旧的可以在同一页面 Revoke 掉）。
